@@ -1,5 +1,9 @@
 # c-µdsp
 
+_Published on GitHub as `c-udsp` (`µ` → `u`) — GitHub repo names are
+ASCII-only. Local checkouts and the ctui-mus submodule path both keep
+the literal `c-µdsp` name; only the remote URL differs._
+
 A small, dependency-free C11 DSP library for audio visualizers: FFT,
 log-spaced spectrum bars, a spectrogram's scrolling history, momentary
 LUFS loudness, RMS/peak/dBFS, mono downmix, and oscilloscope-style
