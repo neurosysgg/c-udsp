@@ -20,11 +20,17 @@
  * before "the most recent possible trace" -- a real oscilloscope's
  * trigger, without which the trace would visibly swim/jitter every call
  * since the buffer's start has no relationship to the signal's own
- * phase. Falls back to the most recent UDSP_SCOPE_POINTS samples,
+ * phase. Falls back to the earliest sample in that search window,
  * untriggered, if no crossing exists in range (e.g. near-silence, pure
- * DC, or n too small yet) -- still shows something rather than freezing
- * on a stale trace. Short reads (n less than UDSP_SCOPE_POINTS) zero-pad
- * the remainder of trace_out. */
+ * DC, or n too small yet).
+ *
+ * From the trigger point, a short-time autocorrelation estimates the
+ * signal's pitch period, and exactly one period is linearly resampled to
+ * fill trace_out -- so a periodic signal's trace holds still (one stable
+ * cycle) rather than scrolling with phase drift each call. Falls back to
+ * a UDSP_SCOPE_POINTS-sample period (i.e. the raw post-trigger samples)
+ * if no clear periodicity is found. Reads that run off the end of mono
+ * (n too short past the trigger) zero-pad the remainder of trace_out. */
 void udsp_scope_extract(const float *mono, size_t n, float *trace_out);
 
 #endif

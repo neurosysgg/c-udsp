@@ -5,14 +5,14 @@
 
 /* FFT size for every spectrum-bar computation in this library -- fixed
  * (not derived from sample rate/caller timing) and must stay a power of
- * two (udsp_fft_forward()'s precondition). 2048 samples is ~46ms at
- * 44.1kHz -- short enough to feel responsive in a live visualizer, long
- * enough for ~21Hz bin resolution, i.e. usable detail even in the
- * sub-bass end of a log-spaced bar layout. A caller with different
+ * two (udsp_fft_forward()'s precondition). 8192 samples is ~186ms at
+ * 44.1kHz -- still short enough to feel responsive in a live visualizer,
+ * and gives ~5.4Hz bin resolution, plenty of detail even in the sub-bass
+ * end of a log-spaced bar layout. A caller with different
  * responsiveness/resolution needs can fork this constant locally; it
  * isn't a runtime argument because every buffer this module touches
  * (scratch_re/scratch_im, mono_tail) is sized from it at compile time. */
-#define UDSP_FFT_N 2048
+#define UDSP_FFT_N 8192
 
 /* lowest frequency any bar/bin edge is ever placed at -- below this, bar
  * width per the log scale collapses to near-nothing anyway (see
@@ -25,7 +25,7 @@
  * runtime argument, so nothing stops a caller from asking for a
  * different count (e.g. many more, narrower bins for a spectrogram-style
  * waterfall). */
-#define UDSP_SPECTRUM_BARS 28
+#define UDSP_SPECTRUM_BARS 128
 
 /* mono_tail must point at exactly UDSP_FFT_N contiguous, most-recent
  * mono samples. scratch_re/scratch_im must each be UDSP_FFT_N floats:
@@ -55,14 +55,15 @@ void udsp_spectrum_magnitude(const float *mono_tail, float *scratch_re,
  * udsp_analyze_dbfs(). Stateless -- one call, one answer -- so the same
  * function backs both a "few wide bars" widget and a "many narrow bins"
  * spectrogram column with nothing but a different n_bars. */
-void udsp_spectrum_bin(const float *mag, int sample_rate, float *bars_out, int n_bars);
+void udsp_spectrum_bin(const float *mag, int sample_rate, float *bars_out,
+                       int n_bars);
 
 /* udsp_spectrum_magnitude() + udsp_spectrum_bin() in one call -- the
  * convenience shape for a caller that only needs one binning of one FFT
  * (most callers; see udsp_spectrum_magnitude()'s own doc comment for
  * when the split versions are worth calling directly instead). */
 void udsp_spectrum_bars(const float *mono_tail, int sample_rate,
-                        float *scratch_re, float *scratch_im,
-                        float *bars_out, int n_bars);
+                        float *scratch_re, float *scratch_im, float *bars_out,
+                        int n_bars);
 
 #endif
