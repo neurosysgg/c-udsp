@@ -6,8 +6,9 @@ the literal `c-µdsp` name; only the remote URL differs._
 
 A small, dependency-free C11 DSP library for audio visualizers: FFT,
 log-spaced spectrum bars, a spectrogram's scrolling history, momentary
-LUFS loudness, RMS/peak/dBFS, mono downmix, and oscilloscope-style
-triggered trace extraction. Extracted from [`ctui-mus`](../ctui-mus)'s
+LUFS loudness, RMS/peak/dBFS, mono downmix, oscilloscope-style
+triggered trace extraction, and display ballistics (attack/release
+smoothing, peak hold). Extracted from [`ctui-mus`](../ctui-mus)'s
 `audiovis-core`, where this pipeline first took shape as the numeric
 backbone behind four terminal visualizers (a level meter, an
 oscilloscope, spectrum bars, a spectrogram).
@@ -40,6 +41,7 @@ There's no single umbrella header — include only what you need:
 #include "loudness.h"    /* udsp_loudness_lufs_momentary -- K-weighted momentary LUFS */
 #include "scope.h"       /* udsp_scope_extract -- triggered waveform trace */
 #include "spectrogram.h" /* UDSP_SPECTROGRAM + udsp_spectrogram_push -- scrolling history */
+#include "ballistics.h"  /* udsp_ballistics, udsp_peak_hold -- attack/release, peak hold */
 ```
 
 Every function takes plain `float *` buffers the caller owns (input,

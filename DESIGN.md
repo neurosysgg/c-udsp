@@ -49,6 +49,16 @@ loudness.c       udsp_loudness_lufs_momentary(): K-weighting biquad
 
 scope.c          udsp_scope_extract(): trigger search + trace copy,
                  built on nothing but a caller-supplied mono buffer.
+
+ballistics.c     udsp_ballistics() / udsp_peak_hold(): how a displayed
+                 value follows a measured one over time (attack/release
+                 one-pole easing, peak hold then fall). Unit-agnostic
+                 (dBFS bars or linear levels alike) and dt-based, so the
+                 result doesn't depend on the caller's frame rate. The
+                 state (level, peak, age) is caller-owned arrays updated
+                 in place: nothing is kept inside the library, which is
+                 why this isn't a second stateful module like
+                 spectrogram.c.
 ```
 
 The rule this follows: **a file boundary marks either a change in what
