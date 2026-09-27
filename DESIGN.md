@@ -79,6 +79,47 @@ always free to override with a runtime argument where one exists
 Turning a dBFS bar, an intensity byte, or a trace sample into a color or
 a terminal cell is entirely the caller's concern.
 
+## Tables and plans: precomputation without state
+
+Whatever depends only on sizes and rates -- FFT twiddles, a window, a
+spectrum's bar-to-bin ranges -- is computed once into a caller-owned
+buffer (`udsp_fft_table()`, `udsp_window_hann_table()`) or struct
+(`UDSP_SPECTRUM_PLAN`, `udsp_spectrum_plan()`) and passed back in. That
+keeps the library's rules: nothing allocates (the caller sizes the
+buffer: `UDSP_FFT_TABLE_FLOATS(n)`, `UDSP_SPECTRUM_SCRATCH`), and nothing
+is state -- a table is read-only once filled, so one can serve any number
+of calls and threads. The per-call work drops to what actually depends on
+the samples. The table-free originals (`udsp_fft_forward()`,
+`udsp_window_hann()`, `udsp_spectrum_bars()` and its magnitude/bin halves)
+stay, unchanged, for callers that haven't moved.
+
+The FFT size is a plan's, not the library's: `UDSP_FFT_N` (8192) sizes
+the old entry points, but consumers want different trade-offs from one
+build -- a live meter short windows that follow the music (2048: ~43 ms
+at 48 kHz), a detailed display fine bins (8192: ~5.9 Hz). A plan holds
+tables for the largest size and uses the first part for smaller ones, so
+a small plan touches (and keeps in cache) only what it needs.
+
+The twiddle table stores each stage's twiddles contiguously (stage h's
+k-th at `[h + k]`, its imaginary half at `[n + h + k]`), so the butterfly
+loop loads plain vectors, and one table built for n serves every smaller
+power of two too (`udsp_fft_real()` runs an n/2-point transform plus a
+split on the table for n).
+
+## Vectors: `simd.h`
+
+Every loop over samples is written against `simd.h`'s `UDSP_VF`: a GCC
+vector extension (gcc, clang) as wide as the target's registers (16 bytes
+on SSE2/NEON, 32 with AVX), with the target's own min/max/abs/sqrt where
+the generic form compiles badly. Reductions keep `UDSP_ACC` (8)
+independent accumulators, since without `-ffast-math` no compiler splits
+a float sum's chain itself; the short loops over those accumulator arrays
+carry `UDSP_UNROLL`, without which gcc -O2 keeps them in memory. Defining
+`UDSP_SCALAR` (or a compiler without the extension) makes a vector one
+float: the same kernels as plain C, the reference `make test-variants`
+holds the vector builds to. `bench/README.md` has the measurements behind
+each of these choices.
+
 ## Simplifications, and why each one is acceptable here
 
 None of these are secret; each is called out in the relevant header's
@@ -117,6 +158,11 @@ instead of several scattered ones:
   search window," not a real scope's configurable edge/level/holdoff.**
   Good enough to stop a trace from visibly swimming frame to frame;
   nothing here attempts more than that.
+- **Vector sums and maxima combine in a different order than a plain
+  loop.** Reductions run in 8 x lanes partial sums (flushed into a double
+  every 4096 samples), so a sum can differ from a sequential one in the
+  last bits; max/min/peak are exact. RMS over a 20-minute take stays
+  within 1e-7 relative of a double reference (the tests pin 1e-6).
 - **Loudness re-filters its entire input from scratch on every call
   instead of carrying persistent biquad state across calls.** Simpler
   (no cross-call state to get wrong or reset) at the cost of redundant

@@ -22,6 +22,17 @@ float udsp_analyze_rms(const float *samples, size_t n);
  * agnostic reasoning as udsp_analyze_rms(). 0 for an empty buffer. */
 float udsp_analyze_peak(const float *samples, size_t n);
 
+/* the sum of a flat float buffer (a band's energy out of
+ * udsp_fft_power()'s bins), 0 for an empty one; in float lanes flushed
+ * into a double like udsp_analyze_rms(), so long sums stay precise */
+double udsp_analyze_sum(const float *x, size_t n);
+
+/* the smallest and largest sample of a flat float buffer, in one pass (a
+ * waveform column's extent); both 0 for an empty buffer. Channel-agnostic
+ * like the two above. */
+void udsp_analyze_minmax(const float *samples, size_t n, float *min_out,
+                         float *max_out);
+
 /* interleaved (frames * channels floats) -> mono (frames floats), by
  * averaging each frame's channels. channels <= 0 or 1 is treated as
  * already-mono and just copies. This IS channel-aware (unlike the two

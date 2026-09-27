@@ -44,9 +44,24 @@ this library.
   history") and it says so explicitly in its own header — don't add a
   second stateful module without the same kind of justification.
 
+## Speed
+
+- Loops over samples use `src/simd.h` (`UDSP_VF`, `udsp_vload`/`vstore`,
+  `udsp_vmax`/...), never raw intrinsics outside it and never a vector
+  wider than the target. Reductions: `UDSP_ACC` accumulators, and
+  `UDSP_UNROLL` on every loop over an accumulator array (gcc -O2 needs
+  it; see bench/README.md). Every vector loop keeps a scalar tail.
+- Anything that only depends on sizes/rates goes into a caller-owned
+  table or plan, filled once, read-only after.
+- A speed change is measured, not assumed: `bench/matrix.py --compare
+  after` before and after it (add the kernel to bench.c if it's new), and
+  `bench/README.md` updated when the picture changes.
+
 ## Testing approach
 
-Plain, dependency-free unit tests under `tests/`, using the header-only
+`make test-variants` before calling anything done: every build the
+kernels have a path for, plus ASan/UBSan. Plain, dependency-free unit
+tests under `tests/`, using the header-only
 `udsp_test.h` assert/summary pair (`make test` builds and runs all of
 them). Prefer known-input/known-output assertions over comparing against
 a second implementation — a DC signal's energy lands entirely in FFT bin
@@ -57,7 +72,11 @@ the math immediately rather than letting it drift.
 
 ## Consumers
 
-`ctui-mus` is the first and, so far, only consumer — pulled in via
+`ctui-wm` is the second (submodule `c-udsp/`, GitHub's ASCII name). The
+two lines diverged once (ctui-mus's vendored copy got four commits that
+never came back here while this checkout got two others; merged
+2026-09-27): a change made in a consumer's vendored copy is pushed back
+to this checkout before anything else builds on either. `ctui-mus` is the first consumer — pulled in via
 `git submodule add ../c-µdsp vendor/c-µdsp`, the same pattern it already
 uses for `vendor/ctui`. Editing this repo from inside a consumer's
 working tree (e.g. `ctui-mus/vendor/c-µdsp/src/...`) is editing this

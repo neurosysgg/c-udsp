@@ -66,4 +66,71 @@ void udsp_spectrum_bars(const float *mono_tail, int sample_rate,
                         float *scratch_re, float *scratch_im, float *bars_out,
                         int n_bars);
 
+/* --- the planned path: udsp_spectrum_bars() with nothing recomputed ---
+ *
+ * Everything that only depends on the FFT size, the rate and the bar count
+ * (the window, the FFT's twiddles, each bar's bin range) is worked out once
+ * into a caller-owned plan; a spectrum is then a real FFT that windows its
+ * input as it loads it, squared magnitudes, and a max per band: ~20x
+ * faster than udsp_spectrum_bars() at the same size, same bars
+ * (bench/README.md). The FFT size is the plan's, not UDSP_FFT_N: a live
+ * meter wants short windows (2048: ~43 ms at 48 kHz), a detailed display
+ * long ones (8192). The plan is read-only after udsp_spectrum_plan():
+ * share it freely. */
+
+/* the largest FFT a plan takes, and the most bars it holds (more than a
+ * few thousand is pointless on any display) */
+#define UDSP_SPECTRUM_MAX_N 8192
+#define UDSP_SPECTRUM_MAX_BARS 1024
+
+/* floats of scratch the planned functions take for an n-point plan: bins
+ * 0..n/2, real and imaginary halves, the second on a 64-byte boundary
+ * past the first (a vector load never straddles two cache lines there
+ * when the scratch itself is 64-byte aligned). UDSP_SPECTRUM_SCRATCH fits
+ * any plan */
+#define UDSP_SPECTRUM_SCRATCH_N(n) (2 * ((n) / 2 + 16))
+#define UDSP_SPECTRUM_SCRATCH UDSP_SPECTRUM_SCRATCH_N(UDSP_SPECTRUM_MAX_N)
+
+/* the tables first: in a plan that starts on a 64-byte boundary (the
+ * caller's to arrange: aligned_alloc(), _Alignas) they do too. Sized for
+ * UDSP_SPECTRUM_MAX_N; an n-point plan uses the first n window floats and
+ * 2n table floats, so a smaller plan touches (and keeps in cache) only
+ * that much */
+typedef struct UDSP_SPECTRUM_PLAN {
+  float window[UDSP_SPECTRUM_MAX_N]; /* Hann, times the bars' 2/n */
+  float fft[2 * UDSP_SPECTRUM_MAX_N]; /* UDSP_FFT_TABLE_FLOATS(n) used */
+  int bin0[UDSP_SPECTRUM_MAX_BARS], bin1[UDSP_SPECTRUM_MAX_BARS];
+  int n;
+  int sample_rate;
+  int n_bars;
+} UDSP_SPECTRUM_PLAN;
+
+/* fills plan for n-point FFTs (a power of two, 16..UDSP_SPECTRUM_MAX_N;
+ * anything else: UDSP_FFT_N) of sample_rate audio into n_bars (clamped to
+ * 1..MAX_BARS) bars: the log-spaced bands udsp_spectrum_bin() uses at that
+ * size */
+void udsp_spectrum_plan(UDSP_SPECTRUM_PLAN *plan, int n, int sample_rate,
+                        int n_bars);
+
+/* the power spectrum of the plan->n samples at mono_tail, Hann-windowed:
+ * afterwards scratch[k] (k = 0..n/2) holds bin k's squared amplitude,
+ * scaled like the bars (a full-scale sine's bin near 1, i.e. 0 dBFS).
+ * scratch: UDSP_SPECTRUM_SCRATCH_N(plan->n) floats. Returns scratch. For
+ * bins rather than bars (band energies, a spectrogram of one's own), or
+ * one spectrum binned several ways (udsp_spectrum_bin_planned()). */
+float *udsp_spectrum_power(const UDSP_SPECTRUM_PLAN *plan,
+                           const float *mono_tail, float *scratch);
+
+/* plan's n_bars dBFS bars out of a power spectrum from
+ * udsp_spectrum_power() (of any plan with the same n and rate): the
+ * planned udsp_spectrum_bin() */
+void udsp_spectrum_bin_planned(const UDSP_SPECTRUM_PLAN *plan,
+                               const float *power, float *bars_out);
+
+/* udsp_spectrum_power() + udsp_spectrum_bin_planned(): udsp_spectrum_bars()
+ * through plan */
+void udsp_spectrum_bars_planned(const UDSP_SPECTRUM_PLAN *plan,
+                                const float *mono_tail, float *scratch,
+                                float *bars_out);
+
 #endif

@@ -19,9 +19,10 @@
  * is, not re-derived per rate). Good enough for a live "how loud does
  * this sound" meter bar; not a certified loudness measurement.
  *
- * mono is n samples of mono audio (see udsp_mono_downmix()); scratch is a
- * caller-owned n-float working buffer (so this never allocates),
- * clobbered on every call. Returns LUFS, clamped to UDSP_LUFS_FLOOR. */
+ * mono is n samples of mono audio (see udsp_mono_downmix()). scratch is
+ * no longer used (the filter runs in one pass now; it was an n-float
+ * working buffer) and may be NULL; the parameter stays for the callers.
+ * Returns LUFS, clamped to UDSP_LUFS_FLOOR. */
 float udsp_loudness_lufs_momentary(const float *mono, size_t n, float *scratch);
 
 #endif

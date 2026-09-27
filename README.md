@@ -23,8 +23,11 @@ app or example binary here, only `src/` and `tests/`.
 ## Build
 
 ```sh
-make test    # builds and runs everything under tests/
-make clean   # removes built test binaries
+make test            # builds and runs everything under tests/
+make test-variants   # the same under gcc/clang, -O2/-O3, SSE2/AVX2, the
+                     # plain-C build (UDSP_SCALAR) and ASan+UBSan
+make bench           # bench/matrix.py: each kernel's cost per compiler/flags
+make clean           # removes built test binaries
 ```
 
 Requires a C11 compiler and libc's `<math.h>` (linked via `-lm`) —
@@ -35,9 +38,14 @@ nothing else. No POSIX, no threads, no allocation anywhere in `src/`.
 There's no single umbrella header — include only what you need:
 
 ```c
-#include "fft.h"        /* udsp_fft_forward, udsp_window_hann, udsp_fft_magnitude */
-#include "analyze.h"     /* udsp_analyze_rms/peak/dbfs, udsp_mono_downmix */
-#include "spectrum.h"    /* udsp_spectrum_bars -- log-spaced dBFS bars from an FFT */
+#include "fft.h"        /* udsp_fft_forward, udsp_window_hann, udsp_fft_magnitude;
+                           the table-driven ones: udsp_fft_table, udsp_fft_real,
+                           udsp_fft_forward_table, udsp_fft_power,
+                           udsp_window_hann_table, udsp_window_apply */
+#include "analyze.h"     /* udsp_analyze_rms/peak/minmax/sum/dbfs, udsp_mono_downmix */
+#include "spectrum.h"    /* udsp_spectrum_bars -- log-spaced dBFS bars from an FFT;
+                           UDSP_SPECTRUM_PLAN + udsp_spectrum_bars_planned /
+                           udsp_spectrum_power -- the same, ~20x faster */
 #include "loudness.h"    /* udsp_loudness_lufs_momentary -- K-weighted momentary LUFS */
 #include "scope.h"       /* udsp_scope_extract -- triggered waveform trace */
 #include "spectrogram.h" /* UDSP_SPECTROGRAM + udsp_spectrogram_push -- scrolling history */
@@ -50,11 +58,24 @@ controls its own memory layout and lifetime entirely. See each header's
 doc comment for the exact buffer-size contract; `DESIGN.md` covers how
 the modules layer on top of each other and why.
 
+## Speed
+
+The hot loops are written against `src/simd.h` (GCC vector extensions at
+the target's width, plain C without them) and the transforms take
+caller-owned tables filled once, so they run at the machine's speed at
+plain `-O2`: a 2048-point spectrum (window, real FFT, power) is 1.8 µs on
+a Ryzen 7 5800X, 23x the old path's 41.7 µs; RMS 15x, peak 4x (13x with
+AVX2). `bench/README.md` has the numbers per compiler and flags and what
+was learned getting there (accumulators vs unrolling, what -O3, AVX2 and
+FMA do or don't buy). The old entry points keep their behaviour and cost
+(`udsp_spectrum_bars()` et al.); new code wants the planned/table ones.
+
 ## Docs
 
 - `DESIGN.md` — how the modules layer (transform → domain-specific
   analysis → stateful history), and the deliberate simplifications
   each one makes.
+- `bench/README.md` — the benchmarks, the measurements, the lessons.
 - `CLAUDE.md` — working conventions specific to this repo.
 
 ## Relationship to ctui-mus

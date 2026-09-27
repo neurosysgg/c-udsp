@@ -29,36 +29,34 @@ static const UDSP_BIQUAD UDSP_K_STAGE2 = {
     .a2 = 0.99007225036621,
 };
 
-/* in and out may be the same buffer -- safe because each output sample is
- * written only after the inputs it depends on (x1/x2, held in locals, not
- * re-read from the array) have already been captured. */
-static void biquad_apply(const UDSP_BIQUAD *f, const float *in, float *out, size_t n) {
-  double x1 = 0.0, x2 = 0.0, y1 = 0.0, y2 = 0.0;
+/* both stages and the mean square in one pass, each stage in transposed
+ * Direct Form II. One pass lets stage 2 of a sample overlap stage 1 of
+ * the next (as two passes each stage waited on itself); DF-II-T puts one
+ * multiply-add, not a chain of them, between a stage's output and its
+ * next state. Doubles throughout: stage 2's poles sit at 0.995, where
+ * float state drifts. */
+static double k_weighted_sumsq(const float *mono, size_t n) {
+  const UDSP_BIQUAD *f = &UDSP_K_STAGE1, *g = &UDSP_K_STAGE2;
+  double s1 = 0.0, s2 = 0.0, t1 = 0.0, t2 = 0.0, sumsq = 0.0;
   for (size_t i = 0; i < n; i++) {
-    double x0 = in[i];
-    double y0 = f->b0 * x0 + f->b1 * x1 + f->b2 * x2 - f->a1 * y1 - f->a2 * y2;
-    out[i] = (float)y0;
-    x2 = x1;
-    x1 = x0;
-    y2 = y1;
-    y1 = y0;
+    double x = mono[i];
+    double y = f->b0 * x + s1;
+    s1 = f->b1 * x - f->a1 * y + s2;
+    s2 = f->b2 * x - f->a2 * y;
+    double z = g->b0 * y + t1;
+    t1 = g->b1 * y - g->a1 * z + t2;
+    t2 = g->b2 * y - g->a2 * z;
+    sumsq += z * z;
   }
+  return sumsq;
 }
 
 float udsp_loudness_lufs_momentary(const float *mono, size_t n, float *scratch) {
+  (void)scratch; /* one pass needs none; kept for the callers */
   if (n == 0) {
     return UDSP_LUFS_FLOOR;
   }
-
-  biquad_apply(&UDSP_K_STAGE1, mono, scratch, n);
-  biquad_apply(&UDSP_K_STAGE2, scratch, scratch, n);
-
-  double sumsq = 0.0;
-  for (size_t i = 0; i < n; i++) {
-    double v = scratch[i];
-    sumsq += v * v;
-  }
-  double mean_square = sumsq / (double)n;
+  double mean_square = k_weighted_sumsq(mono, n) / (double)n;
   if (mean_square <= 0.0) {
     return UDSP_LUFS_FLOOR;
   }
