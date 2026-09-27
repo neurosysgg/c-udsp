@@ -8,7 +8,7 @@
  * to look like a waterfall, enough rows to look like a spectrum," not
  * tied to any specific display size. */
 #define UDSP_SPECTROGRAM_COLS 96
-#define UDSP_SPECTROGRAM_BINS 48
+#define UDSP_SPECTROGRAM_BINS 192
 
 /* one column per udsp_spectrogram_push() call, oldest at index 0, newest
  * at COLS-1 -- intensity is 0-255, not a float dBFS value: quantizing
@@ -32,6 +32,16 @@ void udsp_spectrogram_init(UDSP_SPECTROGRAM *sg);
  * on top of the stateless udsp_spectrum_bars() rather than a flag/mode on
  * it. */
 void udsp_spectrogram_push(UDSP_SPECTROGRAM *sg, const float *mono_tail,
-                           int sample_rate, float *scratch_re, float *scratch_im);
+                           int sample_rate, float *scratch_re,
+                           float *scratch_im);
+
+/* same as udsp_spectrogram_push(), but takes an already-computed
+ * UDSP_FFT_N/2-length magnitude spectrum (udsp_spectrum_magnitude()'s
+ * output) instead of a raw mono tail -- for a caller that's already run
+ * the FFT for something else (e.g. a spectrum-bars widget) off the same
+ * window and doesn't want to pay for a second windowing+FFT pass over
+ * identical input just to get this module's own binning. */
+void udsp_spectrogram_push_mag(UDSP_SPECTROGRAM *sg, const float *mag,
+                               int sample_rate);
 
 #endif

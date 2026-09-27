@@ -47,8 +47,9 @@ loudness.c       udsp_loudness_lufs_momentary(): K-weighting biquad
                  spectral analysis are unrelated axes that happen to
                  often feed the same class of meter widget.
 
-scope.c          udsp_scope_extract(): trigger search + trace copy,
-                 built on nothing but a caller-supplied mono buffer.
+scope.c          udsp_scope_extract(): trigger search + pitch-period
+                 autocorrelation + resample, built on nothing but a
+                 caller-supplied mono buffer.
 
 ballistics.c     udsp_ballistics() / udsp_peak_hold(): how a displayed
                  value follows a measured one over time (attack/release
