@@ -1,5 +1,34 @@
 #include "scope.h"
+
+#include "simd.h"
+
 #include <math.h>
+
+/* a . b over n floats: vector lanes in 4 independent accumulators (the
+ * correlation below is one per candidate lag, ~2000 a call) */
+static float dot(const float *a, const float *b, size_t n) {
+  enum { ACC = 4 };
+  UDSP_VF acc[ACC];
+  for (int k = 0; k < ACC; k++) {
+    acc[k] = udsp_vsplat(0.0f);
+  }
+  size_t i = 0;
+  for (; i + ACC * UDSP_W <= n; i += ACC * UDSP_W) {
+    UDSP_UNROLL
+    for (int k = 0; k < ACC; k++) {
+      acc[k] += udsp_vload(a + i + (size_t)k * UDSP_W) *
+                udsp_vload(b + i + (size_t)k * UDSP_W);
+    }
+  }
+  for (int k = 1; k < ACC; k++) {
+    acc[0] += acc[k];
+  }
+  float s = udsp_vsum(acc[0]);
+  for (; i < n; i++) {
+    s += a[i] * b[i];
+  }
+  return s;
+}
 
 void udsp_scope_extract(const float *mono, size_t n, float *trace_out) {
   if (n < 2) {
@@ -56,20 +85,27 @@ void udsp_scope_extract(const float *mono, size_t n, float *trace_out) {
     float score[UDSP_SCOPE_MAX_LAG + 1];
     float best_score = -2.0f;
 
+    /* both windows' energies out of one prefix sum of squares (in double:
+     * differences of large running sums): O(1) a lag instead of two more
+     * passes over the window each */
+    const float *x = mono + offset;
+    size_t span = max_lag + UDSP_SCOPE_CORR_WINDOW;
+    span = span < available ? span : available;
+    double sq[UDSP_SCOPE_MAX_LAG + UDSP_SCOPE_CORR_WINDOW + 1];
+    sq[0] = 0.0;
+    for (size_t k = 0; k < span; k++) {
+      sq[k + 1] = sq[k] + (double)x[k] * x[k];
+    }
+
     for (size_t lag = min_lag; lag <= max_lag; lag++) {
       size_t cmp_len = available - lag;
       if (cmp_len > UDSP_SCOPE_CORR_WINDOW) {
         cmp_len = UDSP_SCOPE_CORR_WINDOW;
       }
 
-      float corr = 0.0f, energy_a = 0.0f, energy_b = 0.0f;
-      for (size_t k = 0; k < cmp_len; k++) {
-        float a = mono[offset + k];
-        float b = mono[offset + k + lag];
-        corr += a * b;
-        energy_a += a * a;
-        energy_b += b * b;
-      }
+      float corr = dot(x, x + lag, cmp_len);
+      float energy_a = (float)sq[cmp_len];
+      float energy_b = (float)(sq[lag + cmp_len] - sq[lag]);
 
       /* near-silent windows have no meaningful phase to lock onto --
        * score them out rather than dividing by ~0 and reading a large

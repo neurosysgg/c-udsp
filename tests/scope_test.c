@@ -4,6 +4,10 @@
 
 #include <math.h>
 
+#include "scope_ref.h"
+
+#include <math.h>
+
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
@@ -136,7 +140,51 @@ static void test_aperiodic_signal_falls_back(void) {
                   "the post-trigger samples, rather than locking onto noise");
 }
 
+/* the vector correlation picks the reference's period, trace for trace:
+ * 10 pitches x steady / tremolo / decaying / noisy x 5 phases, at 2048
+ * and 8192 samples */
+static void test_matches_reference(void) {
+  static const double HZ[] = {55, 82.4, 110, 146.8, 220, 329.6, 440, 587.3, 880, 1174.7};
+  static float x[8192], a[UDSP_SCOPE_POINTS], b[UDSP_SCOPE_POINTS];
+  unsigned seed = 1;
+  int same = 0, total = 0;
+  for (int sz = 0; sz < 2; sz++) {
+    size_t n = sz ? 8192 : 2048;
+    for (int h = 0; h < 10; h++) {
+      for (int kind = 0; kind < 4; kind++) {
+        for (int ph = 0; ph < 5; ph++) {
+          for (size_t i = 0; i < n; i++) {
+            double t = (double)i / 48000.0 + ph * 0.0137;
+            double v = sin(2 * 3.14159265358979 * HZ[h] * t) +
+                       0.3 * sin(4 * 3.14159265358979 * HZ[h] * t);
+            if (kind == 1) {
+              v *= 0.6 + 0.4 * sin(2 * 3.14159265358979 * 5 * t);
+            } else if (kind == 2) {
+              v *= exp(-3.0 * (double)i / (double)n);
+            } else if (kind == 3) {
+              seed = seed * 1103515245u + 12345u;
+              v += 0.3 * (((seed >> 8) & 0xffff) / 32768.0 - 1.0);
+            }
+            x[i] = (float)(0.5 * v);
+          }
+          ref_scope_extract(x, n, a);
+          udsp_scope_extract(x, n, b);
+          int eq = 1;
+          for (int i = 0; i < UDSP_SCOPE_POINTS; i++) {
+            eq &= fabsf(a[i] - b[i]) < 1e-5f;
+          }
+          same += eq;
+          total++;
+        }
+      }
+    }
+  }
+  UDSP_TEST_ASSERT(same == total, "the vector scope traces what the scalar one did "
+                   "(%d of %d signals)", same, total);
+}
+
 int main(void) {
+  test_matches_reference();
   test_trigger_finds_rising_crossing();
   test_untriggered_fallback();
   test_short_window_zero_pads();

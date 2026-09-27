@@ -43,12 +43,16 @@ There's no single umbrella header — include only what you need:
                            udsp_fft_forward_table, udsp_fft_power,
                            udsp_window_hann_table, udsp_window_apply */
 #include "analyze.h"     /* udsp_analyze_rms/peak/minmax/sum/dbfs, udsp_mono_downmix */
-#include "spectrum.h"    /* udsp_spectrum_bars -- log-spaced dBFS bars from an FFT;
-                           UDSP_SPECTRUM_PLAN + udsp_spectrum_bars_planned /
-                           udsp_spectrum_power -- the same, ~20x faster */
+#include "spectrum.h"    /* udsp_spectrum_bars (= udsp_spectrum_magnitude +
+                           udsp_spectrum_bin) -- log-spaced dBFS bars from an
+                           UDSP_FFT_N-point FFT; UDSP_SPECTRUM_PLAN (any FFT
+                           size up to 8192) + udsp_spectrum_bars_planned /
+                           udsp_spectrum_power / udsp_spectrum_bin_planned --
+                           the same, ~18-20x faster */
+#include "gain.h"        /* udsp_gain_apply -- a buffer times a gain */
 #include "loudness.h"    /* udsp_loudness_lufs_momentary -- K-weighted momentary LUFS */
 #include "scope.h"       /* udsp_scope_extract -- triggered waveform trace */
-#include "spectrogram.h" /* UDSP_SPECTROGRAM + udsp_spectrogram_push -- scrolling history */
+#include "spectrogram.h" /* UDSP_SPECTROGRAM + udsp_spectrogram_push(_mag) -- scrolling history */
 #include "ballistics.h"  /* udsp_ballistics, udsp_peak_hold -- attack/release, peak hold */
 ```
 
@@ -64,8 +68,9 @@ The hot loops are written against `src/simd.h` (GCC vector extensions at
 the target's width, plain C without them) and the transforms take
 caller-owned tables filled once, so they run at the machine's speed at
 plain `-O2`: a 2048-point spectrum (window, real FFT, power) is 1.8 µs on
-a Ryzen 7 5800X, 23x the old path's 41.7 µs; RMS 15x, peak 4x (13x with
-AVX2). `bench/README.md` has the numbers per compiler and flags and what
+a Ryzen 7 5800X, 23x the old path's 41.7 µs; at 8192 points 128 bars take
+10 µs planned against 180 µs; RMS 15x, peak 4x (13x with AVX2), the
+period-locked scope 6.5x (same traces). `bench/README.md` has the numbers per compiler and flags and what
 was learned getting there (accumulators vs unrolling, what -O3, AVX2 and
 FMA do or don't buy). The old entry points keep their behaviour and cost
 (`udsp_spectrum_bars()` et al.); new code wants the planned/table ones.
@@ -78,7 +83,12 @@ FMA do or don't buy). The old entry points keep their behaviour and cost
 - `bench/README.md` — the benchmarks, the measurements, the lessons.
 - `CLAUDE.md` — working conventions specific to this repo.
 
-## Relationship to ctui-mus
+## Relationship to ctui-mus (and ctui-wm)
+
+ctui-wm vendors this repo too, as `c-udsp/` (the GitHub name), for its
+audio visualizer and ctui-audio; it builds against a local checkout with
+`make UDSP_DIR=../c-µdsp` while a change here isn't pushed yet.
+
 
 `ctui-mus` pulls this repo in as a git submodule at `vendor/c-µdsp`,
 sourced from the local `../c-µdsp` checkout — a real, independent
