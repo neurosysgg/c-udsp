@@ -15,6 +15,7 @@
 #include "ballistics.h"
 #include "fft.h"
 #include "loudness.h"
+#include "r128.h"
 #include "scope.h"
 #include "spectrogram.h"
 #include "spectrum.h"
@@ -46,6 +47,7 @@ static float *g_in, *g_stereo, *g_re, *g_im, *g_out, *g_big, *g_table,
     *g_hann;
 static float g_level[64], g_target[64], g_peak[64], g_age[64];
 static UDSP_SPECTROGRAM g_sg;
+static UDSP_R128 g_r128;
 
 static unsigned int g_seed = 12345;
 static float noise(void) {
@@ -208,6 +210,13 @@ static void k_lufs(void) {
   g_sink = udsp_loudness_lufs_momentary(g_big, LUFS_N, g_out);
 }
 
+/* a program's loudness: the long stretch as stereo, ~11 s */
+static void k_r128(void) {
+  udsp_r128_init(&g_r128, 48000, 2);
+  udsp_r128_add(&g_r128, g_big, BIG / 2);
+  g_sink = (float)udsp_r128_integrated(&g_r128.hist);
+}
+
 static void k_spectrogram(void) {
   udsp_spectrogram_push(&g_sg, g_in, 48000, g_re, g_im);
   g_sink = g_sg.intensity[0][0];
@@ -241,6 +250,7 @@ static const KERNEL KERNELS[] = {
     {"scope", N, k_scope},
     {"ballistics28", 28, k_ballistics},
     {"lufs", LUFS_N, k_lufs},
+    {"r128", BIG, k_r128},
 };
 
 static int cmp(const void *a, const void *b) {

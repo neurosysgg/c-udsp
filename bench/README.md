@@ -68,6 +68,12 @@ clang -O3 -march=x86-64-v3 had auto-vectorised the plain stereo downmix 8
 wide (144 ns); the explicit 4-lane shuffle is 345 there (gcc: 233 in every
 build).
 
+`r128` (new with the R128 module, `udsp_r128_add()` over the long
+stretch as ~11 s of 48 kHz stereo, then the result): 2.85 ms with gcc -O2,
+2.79 with gcc -O3 -march=x86-64-v3, 4.84 with clang -O3 -march=x86-64-v3,
+i.e. ~3900x real time. It's the two biquads per sample (a recursion, so
+scalar), same as the meter's; a scanner's decoding costs more.
+
 ## What was learned
 
 ### Reductions: accumulators, not unrolling

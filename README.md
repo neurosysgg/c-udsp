@@ -6,17 +6,19 @@ the literal `c-µdsp` name; only the remote URL differs._
 
 A small, dependency-free C11 DSP library for audio visualizers: FFT,
 log-spaced spectrum bars, a spectrogram's scrolling history, momentary
-LUFS loudness, RMS/peak/dBFS, mono downmix, oscilloscope-style
-triggered trace extraction, and display ballistics (attack/release
-smoothing, peak hold). Extracted from [`ctui-mus`](../ctui-mus)'s
+LUFS loudness, integrated (EBU R128) loudness for ReplayGain,
+RMS/peak/dBFS, mono downmix, oscilloscope-style triggered trace
+extraction, and display ballistics (attack/release smoothing, peak
+hold). Extracted from [`ctui-mus`](../ctui-mus)'s
 `audiovis-core`, where this pipeline first took shape as the numeric
 backbone behind four terminal visualizers (a level meter, an
 oscilloscope, spectrum bars, a spectrogram).
 
 ## Status
 
-Every function below is stateless (or, for the one genuinely stateful
-module — the spectrogram's scrolling history — explicit about it) and
+Every function below is stateless (or, for the two genuinely stateful
+modules — the spectrogram's scrolling history and R128's running
+measurement — explicit about it) and
 has a passing headless unit test. This is the whole library; there is no
 app or example binary here, only `src/` and `tests/`.
 
@@ -51,6 +53,9 @@ There's no single umbrella header — include only what you need:
                            the same, ~18-20x faster */
 #include "gain.h"        /* udsp_gain_apply -- a buffer times a gain */
 #include "loudness.h"    /* udsp_loudness_lufs_momentary -- K-weighted momentary LUFS */
+#include "r128.h"        /* UDSP_R128 + udsp_r128_add/integrated -- a program's
+                           integrated loudness (EBU R128, gated) and sample
+                           peak, fed in chunks; UDSP_R128_HIST adds up an album */
 #include "scope.h"       /* udsp_scope_extract -- triggered waveform trace */
 #include "spectrogram.h" /* UDSP_SPECTROGRAM + udsp_spectrogram_push(_mag) -- scrolling history */
 #include "ballistics.h"  /* udsp_ballistics, udsp_peak_hold -- attack/release, peak hold */

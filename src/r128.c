@@ -1,0 +1,176 @@
+#include "r128.h"
+
+#include "analyze.h"
+
+#include <math.h>
+#include <string.h>
+
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+
+#define R128_BIN_LOW -70.0
+#define R128_BIN_STEP 0.1
+
+/* the prototypes' parameters as libebur128 and ffmpeg's ebur128 fit them
+ * to the spec's 48 kHz table: a high shelf (+4 dB above ~1.7 kHz, the
+ * head) and a high-pass at ~38 Hz (the RLB curve) */
+void udsp_r128_kweight(int sample_rate, double k[2][5]) {
+  double fs = (double)sample_rate;
+
+  double f0 = 1681.974450955533, g = 3.999843853973347, q = 0.7071752369554196;
+  double kk = tan(M_PI * f0 / fs);
+  double vh = pow(10.0, g / 20.0);
+  double vb = pow(vh, 0.4996667741545416);
+  double a0 = 1.0 + kk / q + kk * kk;
+  k[0][0] = (vh + vb * kk / q + kk * kk) / a0;
+  k[0][1] = 2.0 * (kk * kk - vh) / a0;
+  k[0][2] = (vh - vb * kk / q + kk * kk) / a0;
+  k[0][3] = 2.0 * (kk * kk - 1.0) / a0;
+  k[0][4] = (1.0 - kk / q + kk * kk) / a0;
+
+  f0 = 38.13547087602444;
+  q = 0.5003270373238773;
+  kk = tan(M_PI * f0 / fs);
+  a0 = 1.0 + kk / q + kk * kk;
+  k[1][0] = 1.0;
+  k[1][1] = -2.0;
+  k[1][2] = 1.0;
+  k[1][3] = 2.0 * (kk * kk - 1.0) / a0;
+  k[1][4] = (1.0 - kk / q + kk * kk) / a0;
+}
+
+static void default_weights(float *w, int channels) {
+  static const float surround[UDSP_R128_MAX_CHANNELS + 1][UDSP_R128_MAX_CHANNELS] = {
+      [4] = {1.0f, 1.0f, 1.41f, 1.41f},
+      [5] = {1.0f, 1.0f, 1.0f, 1.41f, 1.41f},
+      [6] = {1.0f, 1.0f, 1.0f, 0.0f, 1.41f, 1.41f},
+      [7] = {1.0f, 1.0f, 1.0f, 0.0f, 1.41f, 1.41f, 1.41f},
+      [8] = {1.0f, 1.0f, 1.0f, 0.0f, 1.41f, 1.41f, 1.41f, 1.41f},
+  };
+  for (int c = 0; c < channels; c++) {
+    w[c] = channels < 4 ? 1.0f : surround[channels][c];
+  }
+}
+
+void udsp_r128_init(UDSP_R128 *m, int sample_rate, int channels) {
+  memset(m, 0, sizeof(*m));
+  udsp_r128_kweight(sample_rate, m->k);
+  m->channels = channels;
+  default_weights(m->weight, channels);
+  /* exact at every common rate; 11025 Hz rounds to 1103 */
+  m->hop = (size_t)((double)sample_rate / 10.0 + 0.5);
+}
+
+/* one channel's K-weighted sum of squares over n frames, both stages in
+ * transposed Direct Form II as loudness.c's; doubles, since stage 2's
+ * poles sit at ~0.995 where float state drifts */
+static double channel_sumsq(const double k[2][5], double *z, const float *x,
+                            size_t n, int stride) {
+  const double *f = k[0], *g = k[1];
+  double s1 = z[0], s2 = z[1], t1 = z[2], t2 = z[3], sumsq = 0.0;
+  for (size_t i = 0; i < n; i++) {
+    double v = x[i * (size_t)stride];
+    double y = f[0] * v + s1;
+    s1 = f[1] * v - f[3] * y + s2;
+    s2 = f[2] * v - f[4] * y;
+    double o = g[0] * y + t1;
+    t1 = g[1] * y - g[3] * o + t2;
+    t2 = g[2] * y - g[4] * o;
+    sumsq += o * o;
+  }
+  z[0] = s1, z[1] = s2, z[2] = t1, z[3] = t2;
+  return sumsq;
+}
+
+static void add_block(UDSP_R128_HIST *h, double energy) {
+  if (energy <= 0.0) {
+    return;
+  }
+  double l = -0.691 + 10.0 * log10(energy);
+  if (l <= R128_BIN_LOW) {
+    return;
+  }
+  int bin = (int)((l - R128_BIN_LOW) / R128_BIN_STEP);
+  if (bin >= UDSP_R128_BINS) {
+    bin = UDSP_R128_BINS - 1;
+  }
+  h->count[bin]++;
+  h->energy[bin] += energy;
+}
+
+void udsp_r128_add(UDSP_R128 *m, const float *interleaved, size_t frames) {
+  float peak = udsp_analyze_peak(interleaved, frames * (size_t)m->channels);
+  if (peak > m->hist.peak) {
+    m->hist.peak = peak;
+  }
+  while (frames > 0) {
+    size_t n = m->hop - m->acc_n;
+    if (n > frames) {
+      n = frames;
+    }
+    for (int c = 0; c < m->channels; c++) {
+      if (m->weight[c] != 0.0f) {
+        m->acc += m->weight[c] *
+                  channel_sumsq(m->k, m->z[c], interleaved + c, n, m->channels);
+      }
+    }
+    m->acc_n += n;
+    interleaved += n * (size_t)m->channels;
+    frames -= n;
+    if (m->acc_n == m->hop) {
+      m->sub[m->hops % 4] = m->acc;
+      m->hops++;
+      m->acc = 0.0;
+      m->acc_n = 0;
+      if (m->hops >= 4) {
+        double sum = m->sub[0] + m->sub[1] + m->sub[2] + m->sub[3];
+        add_block(&m->hist, sum / (double)(4 * m->hop));
+      }
+    }
+  }
+}
+
+static double to_lufs(double energy) { return -0.691 + 10.0 * log10(energy); }
+
+double udsp_r128_integrated(const UDSP_R128_HIST *h) {
+  uint64_t count = 0;
+  double energy = 0.0;
+  for (int i = 0; i < UDSP_R128_BINS; i++) {
+    count += h->count[i];
+    energy += h->energy[i];
+  }
+  if (count == 0) {
+    return -HUGE_VAL;
+  }
+  double gate = to_lufs(energy / (double)count) - 10.0;
+
+  count = 0;
+  energy = 0.0;
+  for (int i = 0; i < UDSP_R128_BINS; i++) {
+    if (h->count[i] == 0) {
+      continue;
+    }
+    double low = R128_BIN_LOW + i * R128_BIN_STEP;
+    /* the bin the gate falls in: in or out by its own blocks' loudness */
+    if (low + R128_BIN_STEP <= gate ||
+        (low < gate && to_lufs(h->energy[i] / (double)h->count[i]) <= gate)) {
+      continue;
+    }
+    count += h->count[i];
+    energy += h->energy[i];
+  }
+  /* the relative gate sits 10 LU under a mean the loudest block is at or
+   * above, so something always passes it */
+  return to_lufs(energy / (double)count);
+}
+
+void udsp_r128_hist_add(UDSP_R128_HIST *dst, const UDSP_R128_HIST *src) {
+  for (int i = 0; i < UDSP_R128_BINS; i++) {
+    dst->count[i] += src->count[i];
+    dst->energy[i] += src->energy[i];
+  }
+  if (src->peak > dst->peak) {
+    dst->peak = src->peak;
+  }
+}

@@ -31,8 +31,8 @@ a spectrum-bar widget                    spectrogram.c
 one call per frame, wider bars           calls udsp_spectrum_bars() with
                                           UDSP_SPECTROGRAM_BINS, then keeps
                                           a scrolling byte-quantized
-                                          history -- the one genuinely
-                                          stateful module in this library,
+                                          history -- a genuinely stateful
+                                          module (r128.c is the other),
                                           and it's its own file *because*
                                           it's stateful, not bundled into
                                           the stateless spectrum.c.
@@ -46,6 +46,17 @@ loudness.c       udsp_loudness_lufs_momentary(): K-weighting biquad
                  dBFS floor constant, not on spectrum.c -- loudness and
                  spectral analysis are unrelated axes that happen to
                  often feed the same class of meter widget.
+   │
+   ▼
+r128.c           UDSP_R128: a program's integrated loudness (EBU R128 /
+                 BS.1770-4) and sample peak, fed chunk by chunk -- the
+                 K-weighting derived per sample rate, 400 ms blocks every
+                 100 ms, channel weights, both gates, the blocks in a
+                 fixed histogram (UDSP_R128_HIST; two add up to an
+                 album). Stateful because a program is too long to hand
+                 over whole without the caller allocating it; a separate
+                 file from loudness.c for that reason, as spectrogram.c
+                 is from spectrum.c.
 
 scope.c          udsp_scope_extract(): trigger search + pitch-period
                  autocorrelation + resample, built on nothing but a
@@ -126,19 +137,26 @@ None of these are secret; each is called out in the relevant header's
 doc comment too. Collected here so "is this good enough" has one answer
 instead of several scattered ones:
 
-- **LUFS is momentary-only, not BS.1770's integrated/gated loudness.**
-  The K-weighting filter cascade and the `-0.691 + 10*log10(meanSquare)`
-  formula are the real spec; the multi-block gating algorithm BS.1770
-  actually defines for a *program's* loudness is not attempted. Correct
-  for "how loud does this sound right now" (a live meter bar); not a
-  certified measurement.
-- **The K-weighting filter coefficients are the spec's fixed 48kHz
+- **`loudness.c`'s LUFS is momentary-only, not BS.1770's integrated/gated
+  loudness.** The K-weighting filter cascade and the `-0.691 +
+  10*log10(meanSquare)` formula are the real spec; the multi-block gating
+  BS.1770 defines for a *program's* loudness is `r128.c`'s job, not the
+  meter's. Correct for "how loud does this sound right now" (a live meter
+  bar).
+- **The meter's K-weighting coefficients are the spec's fixed 48kHz
   design, applied unmodified at whatever the caller's real sample rate
-  is.** Re-deriving the coefficients per sample rate means implementing
-  BS.1770's analog-prototype bilinear-transform annex — real work with
-  no payoff for a UI meter reading against a fixed dB scale. At common
-  sample rates (44.1/48kHz), the weighting curve's shape is close enough
-  that the difference is inaudible-to-the-eye on a bar.
+  is.** `r128.c` derives them per rate (`udsp_r128_kweight()`); the meter
+  doesn't take a rate at all, and at common sample rates (44.1/48kHz) the
+  weighting curve's shape is close enough that the difference is
+  inaudible-to-the-eye on a bar.
+- **R128's gated blocks are binned at 0.1 LU, not kept one by one.**
+  Each bin sums its blocks' energies exactly, so the only approximation
+  is the one bin the relative gate falls inside: it is counted in or out
+  whole, by its own blocks' mean loudness. Checked against ffmpeg's
+  `ebur128` on real tracks (44.1/48 kHz, stereo and mono): within 0.01 LU.
+  A rate whose 100 ms isn't a whole number of samples (11025 Hz) rounds
+  the hop; the peak is the sample peak, not BS.1770's true (oversampled)
+  peak.
 - **The spectrum's dBFS calibration ignores the Hann window's coherent-
   gain loss.** `UDSP_SPECTRUM_NORM` (`spectrum.c`) is the textbook `2/N`
   single-sided-amplitude normalization, not `2/N` divided by the
