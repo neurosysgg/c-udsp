@@ -23,9 +23,11 @@ void udsp_spectrogram_push_mag(UDSP_SPECTROGRAM *sg, const float *mag, int sampl
    * column -- a plain memmove over the whole grid; simple and correct,
    * not the fastest possible (a true ring index would avoid the copy),
    * a deliberate "simple first" tradeoff for a payload this small
-   * (COLS*BINS bytes). */
-  memmove(&sg->intensity[0], &sg->intensity[1],
-         sizeof(sg->intensity) - sizeof(sg->intensity[0]));
+   * (COLS*BINS bytes). Through the grid's own bytes, not a row pointer:
+   * a fortified memmove sizes &intensity[0] (or [0][0]) as one row. */
+  unsigned char *grid = (unsigned char *)sg;
+  memmove(grid, grid + sizeof(sg->intensity[0]),
+          sizeof(sg->intensity) - sizeof(sg->intensity[0]));
 
   for (int bin = 0; bin < UDSP_SPECTROGRAM_BINS; bin++) {
     sg->intensity[UDSP_SPECTROGRAM_COLS - 1][bin] = quantize_dbfs(bars_dbfs[bin]);
