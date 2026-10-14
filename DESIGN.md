@@ -131,6 +131,59 @@ float: the same kernels as plain C, the reference `make test-variants`
 holds the vector builds to. `bench/README.md` has the measurements behind
 each of these choices.
 
+## The synthesis half: generators and effects
+
+Added for ctui-daw (session 215 in ctui-wm's log; ctui-wm's
+`notes/daw.md`): the blocks a DAW's instruments and effects are built
+from, so ctui-daw, ctui-mus, ctui-wm and µOS share one DSP library.
+The first ones are lifted from µOS's utone and utracker, where they
+were written host-portable (stdint only, caller-owned memory) and
+tested against an independent renderer to the bit; their arithmetic is
+kept exactly, so a renderer built on them still matches µOS's exports
+sample for sample (ctui-daw's `tests/utrk_test.c`).
+
+```
+pitch.c     exact equal temperament: a Q20 semitone table, octaves as
+            shifts (no pow(), no drift between octaves)
+osc.c       UDSP_OSC: a 32-bit phase accumulator and five waves
+sampler.c   UDSP_SAMPLE + UDSP_SAMPLER_VOICE: Q32 position, linear
+            interpolation, loops that keep their fraction
+ramp.c      UDSP_RAMP: a linear envelope ramp, one step per frame
+svf.c       UDSP_SVF: Chamberlin's state-variable filter, stereo
+delay.c     UDSP_DELAY: a stereo feedback delay over the caller's ring
+shape.c     udsp_softclip: x / (1 + |x|), with makeup
+gain.c      + udsp_gain_stereo, udsp_mix_add, udsp_pan_gains
+```
+
+**State.** A generator or a filter is a recurrence: its state can't be
+handed back to the caller between samples the way ballistics.c's
+arrays are, so each of these is a struct the caller owns and passes in
+-- declared in the header, sized by the compiler, nothing kept in the
+library and nothing allocated (utracker's fx.c kept a static pool of
+instances and 500 ms delay rings; here the caller sizes the ring:
+`UDSP_DELAY_RING_FLOATS`). Two structs never share anything, so any
+number of voices run on any threads.
+
+**Vectors.** Where a block's samples don't depend on each other, the
+loop is written against `simd.h` like the analysis: the gains, the mix
+sum, the soft clip, the ramp's held part, and the oscillators -- every
+wave but noise is a function of the phase alone, and a vector's phases
+are `phase + k * inc` (`UDSP_VU`, uint32 lanes that wrap as the scalar
+does; `__builtin_convertvector` rounds as a scalar cast does). The
+vector loop and the scalar tail are the same operations in the same
+order, so a block split anywhere gives the same bits (the tests split
+renders at odd places and compare with memcmp). Serial recurrences --
+the SVF, the delay, noise, the sampler's interpolation -- stay scalar
+per voice; their speed-up is several voices in the lanes of one vector,
+which is a polyphonic synth's layout (d2), not a single voice's.
+
+**Bits.** Built with `-ffp-contract=off` (ctui-daw does), every build --
+gcc and clang, SSE2 and AVX2, UDSP_SCALAR -- renders the same bits; with
+contraction, a compiler may fuse `a * b + c` and a render then differs
+from another build in the last place. The tests here hold the kernels to
+known values with tolerances where a chain of operations could fuse, so
+they pass either way.
+
 ## Simplifications, and why each one is acceptable here
 
 None of these are secret; each is called out in the relevant header's
@@ -176,6 +229,14 @@ instead of several scattered ones:
   search window," not a real scope's configurable edge/level/holdoff.**
   Good enough to stop a trace from visibly swimming frame to frame;
   nothing here attempts more than that.
+- **The tracker blocks keep utracker's shortcuts.** The SVF's
+  coefficient uses a 3-term sine (0.01 % off at 10 kHz / 48 kHz) and is
+  clamped below fs / 4, the triangle is naive (aliases), the sine is a
+  5-term polynomial (~-109 dBFS off), the sampler interpolates linearly:
+  each good enough for what it's for, and kept so the renders stay
+  comparable with µOS's to the bit. Better ones (a band-limited
+  triangle, a cubic or windowed-sinc sampler, a TPT filter) come as new
+  functions beside them, not as changes to these.
 - **Vector sums and maxima combine in a different order than a plain
   loop.** Reductions run in 8 x lanes partial sums (flushed into a double
   every 4096 samples), so a sum can differ from a sequential one in the

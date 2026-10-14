@@ -34,6 +34,8 @@ BUILDS = {
     # -std=c11 makes gcc's default -ffp-contract=off: no FMA without this
     "gcc-O2-v3-fma": ("gcc", "-O2 -march=x86-64-v3 -ffp-contract=fast"),
     "gcc-O3-v3-fma": ("gcc", "-O3 -march=x86-64-v3 -ffp-contract=fast"),
+    # the plain-C kernels: what the vector paths are measured against
+    "gcc-O2-scalar": ("gcc", "-O2 -DUDSP_SCALAR"),
     "clang-O2": ("clang", "-O2"),
     "clang-O3": ("clang", "-O3"),
     "clang-O2-v3": ("clang", "-O2 -march=x86-64-v3"),

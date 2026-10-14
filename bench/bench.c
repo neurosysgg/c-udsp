@@ -13,12 +13,19 @@
 
 #include "analyze.h"
 #include "ballistics.h"
+#include "delay.h"
 #include "fft.h"
+#include "gain.h"
 #include "loudness.h"
+#include "osc.h"
 #include "r128.h"
+#include "ramp.h"
+#include "sampler.h"
 #include "scope.h"
+#include "shape.h"
 #include "spectrogram.h"
 #include "spectrum.h"
+#include "svf.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -222,6 +229,70 @@ static void k_spectrogram(void) {
   g_sink = g_sg.intensity[0][0];
 }
 
+/* --- the synthesis half: N mono samples or N / 2 stereo frames --- */
+
+static UDSP_OSC g_osc;
+static void osc_wave(UDSP_OSC_WAVE w) {
+  g_osc.wave = w;
+  g_osc.inc = udsp_osc_inc_hz(440.0, 48000);
+  udsp_osc_render(&g_osc, g_out, N);
+  g_sink = g_out[7];
+}
+static void k_osc_sine(void) { osc_wave(UDSP_OSC_SINE); }
+static void k_osc_saw(void) { osc_wave(UDSP_OSC_SAW); }
+static void k_osc_square(void) { osc_wave(UDSP_OSC_SQUARE); }
+static void k_osc_triangle(void) { osc_wave(UDSP_OSC_TRIANGLE); }
+static void k_osc_noise(void) { osc_wave(UDSP_OSC_NOISE); }
+
+static UDSP_SAMPLE g_smp;
+static UDSP_SAMPLER_VOICE g_voice;
+static void k_sampler(void) {
+  if (!g_voice.playing || g_voice.pos_q32 > ((uint64_t)BIG / 4 << 32)) {
+    udsp_sampler_note_on(&g_voice, &g_smp, 67, 48000);
+  }
+  udsp_sampler_render(&g_voice, g_out, N / 2);
+  g_sink = g_out[5];
+}
+
+static UDSP_SVF g_svf;
+static void k_svf(void) {
+  memcpy(g_out, g_stereo, N * sizeof(float));
+  udsp_svf_stereo(&g_svf, g_out, N / 2);
+  g_sink = g_out[3];
+}
+
+static UDSP_DELAY g_delay;
+static float *g_ring;
+static void k_delay(void) {
+  memcpy(g_out, g_stereo, N * sizeof(float));
+  udsp_delay_stereo(&g_delay, g_out, N / 2, 12000, 0.4f, 0.35f);
+  g_sink = g_out[3];
+}
+
+static void k_softclip(void) {
+  memcpy(g_out, g_in, N * sizeof(float));
+  udsp_softclip(g_out, N, 3.0f);
+  g_sink = g_out[9];
+}
+
+static void k_mix_add(void) {
+  udsp_mix_add(g_out, g_in, N, 0.5f);
+  g_sink = g_out[9];
+}
+
+static void k_gain_stereo(void) {
+  memcpy(g_out, g_stereo, N * sizeof(float));
+  udsp_gain_stereo(g_out, N / 2, 0.7f, 0.3f);
+  g_sink = g_out[9];
+}
+
+static UDSP_RAMP g_ramp = {0.8f, 0.8f, 1.0f / 144};
+static void k_ramp_held(void) {
+  memcpy(g_out, g_stereo, N * sizeof(float));
+  udsp_ramp_stereo(&g_ramp, g_out, N / 2);
+  g_sink = g_out[9];
+}
+
 static const KERNEL KERNELS[] = {
     {"hann", N, k_hann},
     {"hann_table", N, k_hann_table},
@@ -251,6 +322,18 @@ static const KERNEL KERNELS[] = {
     {"ballistics28", 28, k_ballistics},
     {"lufs", LUFS_N, k_lufs},
     {"r128", BIG, k_r128},
+    {"osc_sine", N, k_osc_sine},
+    {"osc_saw", N, k_osc_saw},
+    {"osc_square", N, k_osc_square},
+    {"osc_triangle", N, k_osc_triangle},
+    {"osc_noise", N, k_osc_noise},
+    {"sampler", N, k_sampler},
+    {"svf", N, k_svf},
+    {"delay", N, k_delay},
+    {"softclip", N, k_softclip},
+    {"mix_add", N, k_mix_add},
+    {"gain_stereo", N, k_gain_stereo},
+    {"ramp_held", N, k_ramp_held},
 };
 
 static int cmp(const void *a, const void *b) {
@@ -322,6 +405,13 @@ int main(int argc, char **argv) {
     g_age[i] = 0.0f;
   }
   udsp_spectrogram_init(&g_sg);
+  udsp_osc_init(&g_osc, UDSP_OSC_SINE, 1);
+  g_smp = (UDSP_SAMPLE){g_big, BIG / 2, 44100, 2, 0, 0, 60};
+  udsp_svf_reset(&g_svf);
+  udsp_svf_set(&g_svf, 1200.0f, 0.5f, UDSP_SVF_LOW, 48000);
+  g_ring = aligned_alloc(64, UDSP_DELAY_RING_FLOATS(24000) * sizeof(float));
+  udsp_delay_init(&g_delay, g_ring, 24000);
+  memset(g_out, 0, LUFS_N * sizeof(float));
   udsp_spectrum_plan(&g_plan28, N, 48000, 28);
   udsp_spectrum_plan(&g_plan128, N, 48000, 128);
   udsp_spectrum_plan(&g_plan8k, UDSP_FFT_N, 48000, 128);

@@ -27,6 +27,14 @@
 #endif
 typedef float UDSP_VF __attribute__((vector_size(UDSP_W * 4)));
 typedef int UDSP_VI __attribute__((vector_size(UDSP_W * 4)));
+/* phase accumulators (osc.c): uint32 lanes that wrap like the scalar
+ * one, converted with __builtin_convertvector (correctly rounded, as a
+ * scalar (float) cast is) */
+typedef unsigned UDSP_VU __attribute__((vector_size(UDSP_W * 4)));
+/* a where m is set (all ones), else b: the blend vector ?: would be */
+static inline UDSP_VF udsp_vsel(UDSP_VI m, UDSP_VF a, UDSP_VF b) {
+  return (UDSP_VF)((m & (UDSP_VI)a) | (~m & (UDSP_VI)b));
+}
 /* four lanes whatever the target: for loops shorter than UDSP_W (an FFT's
  * narrow stages under AVX) */
 #define UDSP_HAVE_V4 1

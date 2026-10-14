@@ -9,17 +9,21 @@ log-spaced spectrum bars, a spectrogram's scrolling history, momentary
 LUFS loudness, integrated (EBU R128) loudness for ReplayGain,
 RMS/peak/dBFS, mono downmix, oscilloscope-style triggered trace
 extraction, and display ballistics (attack/release smoothing, peak
-hold). Extracted from [`ctui-mus`](../ctui-mus)'s
+hold) -- and a synthesis and effects half for
+[`ctui-daw`](../ctui-daw): oscillators, a sampler voice, an envelope
+ramp, a state-variable filter, a feedback delay, a soft clip, pan laws
+and a mixer's sum. The analysis was extracted from [`ctui-mus`](../ctui-mus)'s
 `audiovis-core`, where this pipeline first took shape as the numeric
 backbone behind four terminal visualizers (a level meter, an
 oscilloscope, spectrum bars, a spectrogram).
 
 ## Status
 
-Every function below is stateless (or, for the two genuinely stateful
-modules — the spectrogram's scrolling history and R128's running
-measurement — explicit about it) and
-has a passing headless unit test. This is the whole library; there is no
+Every analysis function below is stateless (or, for the two genuinely
+stateful modules — the spectrogram's scrolling history and R128's running
+measurement — explicit about it); the synthesis half is stateful by
+nature (a phase, a filter's memory, a delay line) and keeps all of it in
+caller-owned structs. Everything has a passing headless unit test. This is the whole library; there is no
 app or example binary here, only `src/` and `tests/`.
 
 ## Build
@@ -59,6 +63,19 @@ There's no single umbrella header — include only what you need:
 #include "scope.h"       /* udsp_scope_extract -- triggered waveform trace */
 #include "spectrogram.h" /* UDSP_SPECTROGRAM + udsp_spectrogram_push(_mag) -- scrolling history */
 #include "ballistics.h"  /* udsp_ballistics, udsp_peak_hold -- attack/release, peak hold */
+
+/* synthesis and effects (lifted from µOS's utone / utracker; DESIGN.md) */
+#include "pitch.h"       /* udsp_pitch_ratio_q32, udsp_note_millihz -- exact
+                           equal temperament in integers */
+#include "osc.h"         /* UDSP_OSC + udsp_osc_render -- sine, PolyBLEP saw /
+                           square, triangle, noise; a 32-bit phase accumulator */
+#include "sampler.h"     /* UDSP_SAMPLE, UDSP_SAMPLER_VOICE -- a sample at a
+                           pitch, Q32 position, linear interpolation, loops */
+#include "ramp.h"        /* UDSP_RAMP -- a linear per-frame envelope ramp */
+#include "svf.h"         /* UDSP_SVF -- Chamberlin state-variable filter */
+#include "delay.h"       /* UDSP_DELAY -- stereo feedback delay, caller's ring */
+#include "shape.h"       /* udsp_softclip -- a rational soft clip */
+/* gain.h also has udsp_gain_stereo, udsp_mix_add and udsp_pan_gains */
 ```
 
 Every function takes plain `float *` buffers the caller owns (input,

@@ -2,6 +2,8 @@
 
 #include "gain.h"
 
+#include <math.h>
+
 static void test_unity_gain_is_a_no_op(void) {
   float buf[4] = {0.1f, -0.5f, 1.0f, -1.0f};
   udsp_gain_apply(buf, 4, 1.0f);
@@ -35,10 +37,56 @@ static void test_channel_agnostic_flat_stream(void) {
   }
 }
 
+static void test_stereo_gains_per_side(void) {
+  float buf[18];
+  for (int i = 0; i < 18; i++) {
+    buf[i] = 1.0f;
+  }
+  udsp_gain_stereo(buf, 9, 0.5f, 0.25f);
+  int ok = 1;
+  for (int i = 0; i < 18; i++) {
+    ok &= buf[i] == (i & 1 ? 0.25f : 0.5f);
+  }
+  UDSP_TEST_ASSERT(ok, "left frames by gl, right by gr, through the tail too");
+}
+
+static void test_mix_add(void) {
+  float dst[11], src[11];
+  for (int i = 0; i < 11; i++) {
+    dst[i] = (float)i;
+    src[i] = 2.0f;
+  }
+  udsp_mix_add(dst, src, 11, 0.25f);
+  int ok = 1;
+  for (int i = 0; i < 11; i++) {
+    ok &= dst[i] == (float)i + 0.5f;
+  }
+  UDSP_TEST_ASSERT(ok, "dst += src * gain");
+}
+
+static void test_pan_laws(void) {
+  float l, r;
+  udsp_pan_gains(0.0f, UDSP_PAN_BALANCE, &l, &r);
+  UDSP_TEST_ASSERT(l == 1.0f && r == 1.0f, "balance: unity in the centre");
+  udsp_pan_gains(1.0f, UDSP_PAN_BALANCE, &l, &r);
+  UDSP_TEST_ASSERT(fabsf(l) < 1e-6f && r == 1.0f, "balance: hard right silences the left");
+  udsp_pan_gains(-0.5f, UDSP_PAN_BALANCE, &l, &r);
+  UDSP_TEST_ASSERT(l == 1.0f && fabsf(r - 0.70710678f) < 1e-6f,
+                   "balance: half left, the right at -3 dB");
+  udsp_pan_gains(0.0f, UDSP_PAN_EQUAL_POWER, &l, &r);
+  UDSP_TEST_ASSERT(fabsf(l - 0.70710678f) < 1e-6f && fabsf(r - 0.70710678f) < 1e-6f,
+                   "equal power: -3 dB each in the centre");
+  udsp_pan_gains(-3.0f, UDSP_PAN_EQUAL_POWER, &l, &r);
+  UDSP_TEST_ASSERT(l == 1.0f && fabsf(r) < 1e-6f, "a pan past -1 is -1");
+}
+
 int main(void) {
   test_unity_gain_is_a_no_op();
   test_zero_gain_silences();
   test_half_gain_halves_every_sample();
   test_channel_agnostic_flat_stream();
+  test_stereo_gains_per_side();
+  test_mix_add();
+  test_pan_laws();
   return udsp_test_summary();
 }

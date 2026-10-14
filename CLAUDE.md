@@ -39,10 +39,12 @@ this library.
   caller-owned `float *` parameters. This is the one rule every other
   convention here serves — it's what keeps the library trivially
   embeddable in any threading model a consumer picks.
-- Stateless by default. `spectrogram.c` is the one exception (a
-  spectrogram is inherently "spectrum bars plus memory of recent
-  history") and it says so explicitly in its own header — don't add a
-  second stateful module without the same kind of justification.
+- Stateless by default in the analysis half. `spectrogram.c` and
+  `r128.c` are the exceptions (history, a program's measurement) and say
+  so in their headers — don't add another stateful analysis without the
+  same kind of justification. The synthesis half (osc, sampler, ramp,
+  svf, delay; DESIGN.md) is stateful by nature: its state is a struct
+  the caller owns, never a static and never allocated here.
 
 ## Speed
 
@@ -71,6 +73,11 @@ exact values (not just "greater than the floor") catches a regression in
 the math immediately rather than letting it drift.
 
 ## Consumers
+
+`ctui-daw` (submodule `vendor/c-µdsp`) uses the synthesis half and holds
+it to µOS's renders bit for bit (its `tests/utrk_test.c`): a change to
+the arithmetic of osc / sampler / ramp / svf / delay / shape / gain is
+checked there (`make test` in ../ctui-daw with `UDSP_DIR=../c-µdsp`).
 
 `ctui-wm` is the second (submodule `c-udsp/`, GitHub's ASCII name). The
 two lines diverged once (ctui-mus's vendored copy got four commits that

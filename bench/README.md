@@ -241,3 +241,41 @@ itself the input's copy (split, permuted, windowed). The data movement
 left is the algorithm's: every radix-4 pass reads and writes the block
 once (a self-sorting FFT would trade the permutation for ping-pong
 buffers, no less movement).
+
+### The synthesis half
+
+The generators and effects (DESIGN.md "The synthesis half"), ns per call
+of 2048 samples (mono) or 1024 stereo frames, Ryzen 7 5800X, pinned;
+`gcc-O2-scalar` is the plain-C build (`-DUDSP_SCALAR`) the vector paths
+are measured against:
+
+| kernel | gcc-O2-scalar | gcc-O2 | gcc-O2-v3 | clang-O2-v3 |
+|---|---:|---:|---:|---:|
+| osc_sine | 3926 | 2591 | 1010 | 795 |
+| osc_saw | 2088 | 1776 | 780 | 678 |
+| osc_square | 3497 | 3385 | 1389 | 1243 |
+| osc_triangle | 1430 | 669 | 279 | 249 |
+| osc_noise | 2613 | 2621 | 2623 | 2615 |
+| sampler | 1196 | 1199 | 1161 | 1207 |
+| svf | 9614 | 9619 | 8793 | 7546 |
+| delay | 1529 | 1533 | 1422 | 1389 |
+| softclip | 501 | 398 | 230 | 234 |
+| mix_add | 456 | 139 | 64 | 120 |
+| gain_stereo | 609 | 178 | 123 | 114 |
+| ramp_held | 175 | 176 | 123 | 137 |
+
+- Oscillators: a vector of phases (`phase + k * inc`) gives 2.5-5.7x
+  with AVX2. On SSE2 the PolyBLEP waves gain little: each lane computes
+  both edge branches and two divisions (`t / dt`), and divps at 4 wide
+  is what the time goes on. Multiplying by `1 / dt` instead would be
+  faster and change the bits (and the match with µOS's renders); a
+  band-limited set of its own can make that trade later.
+- The serial recurrences (SVF, delay, noise, the sampler) don't
+  vectorise within a voice. The SVF is the slowest at ~4.7 ns a sample
+  (the clamps and the mode select every sample) -- 0.02 % of a core per
+  instance at 48 kHz, so nothing to do yet; a polyphonic synth (d2 in
+  ctui-daw) runs its voices in the lanes instead.
+- The elementwise ones gain 3-7x (mix_add, gain_stereo, softclip).
+  ramp_held doesn't move: its scalar build's plain `p[i] *= e` loop is
+  auto-vectorised by gcc at -O2 too; the explicit vectors make that not
+  depend on the compiler's cost model.
