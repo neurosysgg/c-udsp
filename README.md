@@ -11,7 +11,7 @@ RMS/peak/dBFS, mono downmix, oscilloscope-style triggered trace
 extraction, and display ballistics (attack/release smoothing, peak
 hold) -- and a synthesis and effects half for
 [`ctui-daw`](../ctui-daw): oscillators, a sampler voice, an envelope
-ramp, a state-variable filter, a feedback delay, a soft clip, pan laws
+ramp, a parameter smoother, a state-variable filter, a feedback delay, a soft clip, pan laws
 and a mixer's sum. The analysis was extracted from [`ctui-mus`](../ctui-mus)'s
 `audiovis-core`, where this pipeline first took shape as the numeric
 backbone behind four terminal visualizers (a level meter, an
@@ -72,6 +72,8 @@ There's no single umbrella header — include only what you need:
 #include "sampler.h"     /* UDSP_SAMPLE, UDSP_SAMPLER_VOICE -- a sample at a
                            pitch, Q32 position, linear interpolation, loops */
 #include "ramp.h"        /* UDSP_RAMP -- a linear per-frame envelope ramp */
+#include "smooth.h"      /* UDSP_SMOOTH -- a parameter gliding to a target in
+                           a fixed time, landing on it exactly */
 #include "svf.h"         /* UDSP_SVF -- Chamberlin state-variable filter */
 #include "delay.h"       /* UDSP_DELAY -- stereo feedback delay, caller's ring */
 #include "shape.h"       /* udsp_softclip -- a rational soft clip */

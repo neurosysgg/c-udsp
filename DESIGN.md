@@ -149,6 +149,8 @@ osc.c       UDSP_OSC: a 32-bit phase accumulator and five waves
 sampler.c   UDSP_SAMPLE + UDSP_SAMPLER_VOICE: Q32 position, linear
             interpolation, loops that keep their fraction
 ramp.c      UDSP_RAMP: a linear envelope ramp, one step per frame
+smooth.c    UDSP_SMOOTH: a parameter's glide to a target, a fixed length
+            whatever the distance, the last frame on the target exactly
 svf.c       UDSP_SVF: Chamberlin's state-variable filter, stereo
 delay.c     UDSP_DELAY: a stereo feedback delay over the caller's ring
 shape.c     udsp_softclip: x / (1 + |x|), with makeup
