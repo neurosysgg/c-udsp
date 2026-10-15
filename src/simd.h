@@ -179,13 +179,21 @@ static inline float udsp_vhmin(UDSP_VF v) { return v; }
  * cycles on Zen 3) x the two pipes that can take one each cycle. Fewer
  * leaves the loop waiting on its own chain -- the one thing unrolling
  * (-funroll-loops) doesn't fix, since without -ffast-math the compiler
- * may not split a float sum itself. */
+ * may not split a float sum itself. Overridable (-DUDSP_ACC=N) for
+ * bench/sweep.py, which measures the choice per kernel and build. */
+#ifndef UDSP_ACC
 #define UDSP_ACC 8
+#endif
 
 /* on each loop over the accumulators: gcc's -O2 doesn't fully unroll
  * them by itself, and then the array stays in memory instead of
  * registers (a store-to-load trip per step, 2-3x slower). Written as a
- * _Pragma so a macro can carry it */
+ * _Pragma so a macro can carry it. UDSP_NO_UNROLL drops it (bench/
+ * sweep.py's knob; never for a real build) */
+#ifdef UDSP_NO_UNROLL
+#define UDSP_UNROLL
+#else
 #define UDSP_UNROLL _Pragma("GCC unroll 16")
+#endif
 
 #endif

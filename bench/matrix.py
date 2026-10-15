@@ -46,14 +46,17 @@ DEFAULT = ["gcc-O2", "gcc-O2-unroll", "gcc-O3", "gcc-O3-unroll", "gcc-O2-v3",
            "clang-O3-v3"]
 
 
-def build(name, prog):
+def build(name, prog, extra="", tag=""):
+    """prog's binary for build name (bench, ulp: with the library; reduce:
+    alone); extra flags on top (a sweep's -D...), tag names that variant"""
     cc, flags = BUILDS[name]
-    out = os.path.join(HERE, "build", prog + "-" + name)
+    out = os.path.join(HERE, "build", prog + "-" + name + tag)
     os.makedirs(os.path.dirname(out), exist_ok=True)
     src = [os.path.join(ROOT, "src", f) for f in sorted(os.listdir(
-        os.path.join(ROOT, "src"))) if f.endswith(".c")] if prog == "bench" \
-        else []
+        os.path.join(ROOT, "src"))) if f.endswith(".c")] \
+        if prog != "reduce" else []
     cmd = [cc, "-std=c11", "-Wall", "-Wextra", "-g", *flags.split(),
+           *extra.split(),
            "-I" + os.path.join(ROOT, "src"), "-o", out,
            os.path.join(HERE, prog + ".c"), *src, "-lm"]
     subprocess.run(cmd, check=True)

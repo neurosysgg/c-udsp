@@ -7,7 +7,9 @@
 /* floats summed in float lanes before the chunk's total goes into the
  * double: a float lane stays precise over a chunk this long, and the
  * double keeps a whole take's sum (millions of samples) precise */
+#ifndef RMS_CHUNK /* overridable for bench/sweep.py */
 #define RMS_CHUNK 4096
+#endif
 
 static double sumsq_chunk(const float *s, size_t n) {
   UDSP_VF acc[UDSP_ACC];

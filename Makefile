@@ -15,7 +15,8 @@ test: $(TEST_BIN)
 
 # the suites under every build the kernels have a path for: gcc and clang,
 # -O2/-O3, baseline (SSE2) and x86-64-v3 (AVX2+FMA), and the plain-C one
-# (UDSP_SCALAR, the reference the vector paths are held to), and ASan+UBSan
+# (UDSP_SCALAR, the reference the vector paths are held to), and ASan+UBSan;
+# bench/ulp.c's tolerances too, in each
 VARIANTS = gcc:-O2 gcc:-O3 gcc:-O2,-march=x86-64-v3 gcc:-O3,-march=x86-64-v3 \
 	gcc:-O2,-DUDSP_SCALAR clang:-O2 clang:-O3,-march=x86-64-v3 \
 	clang:-O2,-DUDSP_SCALAR \
@@ -31,6 +32,11 @@ test-variants:
 	    ./bench/build/variant > bench/build/variant.out || { fail=1; \
 	      grep FAIL bench/build/variant.out; }; \
 	  done; \
+	  $$cc $(CFLAGS) $$flags -o bench/build/variant bench/ulp.c $(SRC) -lm \
+	    || exit 1; \
+	  ./bench/build/variant > bench/build/variant.out || { fail=1; \
+	    awk -F'\t' '$$3 > $$5 { print "ULP over tolerance:", $$0 }' \
+	      bench/build/variant.out; }; \
 	  printf '%-6s %-32s %s\n' $$cc "$$flags" $$([ $$fail = 0 ] && echo ok || echo FAILED); \
 	  [ $$fail = 0 ] || exit 1; \
 	done
@@ -38,8 +44,13 @@ test-variants:
 bench:
 	bench/matrix.py
 
+# every kernel's error in ULPs against a double reference, every build
+# (bench/ulp.c's tolerances; bench/README.md "ULPs")
+ulp:
+	bench/ulp.py
+
 clean:
 	rm -f $(TEST_BIN)
 
 .DEFAULT_GOAL := test
-.PHONY: test test-variants bench clean
+.PHONY: test test-variants bench ulp clean

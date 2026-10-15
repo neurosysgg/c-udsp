@@ -1,3 +1,4 @@
 test-*
 *.o
 bench/build/
+bench/__pycache__/

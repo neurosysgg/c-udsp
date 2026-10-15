@@ -6,7 +6,10 @@ bench/matrix.py -k fft -b gcc-O2,gcc-O3-v3   # some kernels, some builds
 bench/matrix.py --save LABEL          # keep a run (bench/results/LABEL.tsv)
 bench/matrix.py --compare OLD [NEW]   # old/new per kernel and build
 bench/matrix.py -p reduce             # the reduction study (reduce.c)
-make test-variants                    # the tests under every build below
+make test-variants                    # the tests (and ulp.c) under every build below
+make ulp                              # bench/ulp.py: every kernel's error in ULPs, every build
+bench/ulp.py -k fft -D -DUDSP_ACC=4   # some kernels, a candidate's flags on top
+bench/sweep.py acc|unroll|chunk|contract [-b BUILD,...]   # one knob per kernel and build
 ```
 
 `bench.c` times each kernel on synthetic audio (a bass tone, a wobbling
@@ -73,6 +76,79 @@ stretch as ~11 s of 48 kHz stereo, then the result): 2.85 ms with gcc -O2,
 2.79 with gcc -O3 -march=x86-64-v3, 4.84 with clang -O3 -march=x86-64-v3,
 i.e. ~3900x real time. It's the two biquads per sample (a recursion, so
 scalar), same as the meter's; a scanner's decoding costs more.
+
+## ULPs
+
+`ulp.c` holds each kernel to a reference computed in double, over a
+corpus of signals: the bench's music, silence, DC, an impulse, Nyquist, a
+full-scale square, noise, quiet (-120 dB), loud (+60 dB, a bus over full
+scale) and a chirp. Errors are in ULPs of a float, of a scale each kernel
+names (ulp.c's head): the value itself for elementwise kernels, the input
+sample for the windows, the largest output for transforms (an FFT's
+rounding spreads over every bin), sum |x| for a sum; peak, min/max and
+the stereo average must be exact. The synthesis half's recurrences (osc,
+svf, delay, sampler, ramp) and the scope have no reference, only a hash
+of their output bits, which `ulp.py` compares with the plain-C build's.
+Each kernel has a written-down tolerance; `make test-variants` fails a
+build over one, `ulp.py` marks it `!`, and `sweep.py` won't time it.
+
+Worst over the corpus, session 221 (gcc 16.2, clang 22.1); `*` = bits
+differ from `gcc-O2-scalar`:
+
+| kernel | scale | tolerance | gcc -O2 (SSE2), -O3, -v3, scalar | with FMA (gcc -ffp-contract=fast, clang -v3) |
+|---|---|---:|---:|---:|
+| hann, hann_table | input | 1 | 0.97 | 0.97* |
+| fft (the old one: twiddle recurrence), 2048 | max | 64 | 39.8 | 39.8* |
+| fft_table / fft_real, 16 | max | 2 | 0.65 / 0.51 | 0.65* / 0.62* |
+| fft_table / fft_real, 2048 | max | 4 | 1.52 / 1.31 | 1.68* / 1.17* |
+| fft_table / fft_real, 8192 | max | 4 | 1.70 / 2.69 | 1.76* / 2.71* |
+| fft_real_windowed, 2048 | max | 4 | 1.54 | 1.66* |
+| spectrum_power, 2048 / 8192 | max | 4 / 8 | 1.46 / 4.81 | 1.85* / 4.81* |
+| power, magnitude | elem | 1.5 | 1.12, 1.05 | 1.00*, 0.99* |
+| rms, 2048 / 1M | elem | 1 | 0.45-0.61* / 0.36 | 0.57* / 0.35 |
+| sum | sum | 1 | 0.12-0.38* | 0.38* |
+| peak, minmax, downmix2 | exact | 0 | 0 | 0 |
+| lufs | elem | 1 | 0.46 | 0.46 |
+| softclip | elem | 4 | 2.85 | 2.85* |
+| mix_add, gain_stereo | elem | 1, 0.5 | 0.50 | 0.50* |
+| osc, svf, delay, sampler, ramp, scope | bits | - | = | * |
+
+- The table-driven FFTs are within 1.3-2.7 ULPs of the largest bin up to
+  8192 points; the old `udsp_fft_forward()` is 40 at 2048 (its twiddles
+  by recurrence: the 1.9e-5 drift "The FFT" below measured).
+- **clang contracts by default**: `-ffp-contract=on` even with
+  `-std=c11`, so its AVX2 builds fuse within expressions and their bits
+  differ from every other build's, the synthesis half's included. A
+  consumer that needs the same bits everywhere passes
+  `-ffp-contract=off` (ctui-daw does); within the tolerances either way.
+- The vector reductions (rms, sum) differ in bits from the scalar build
+  by their order of addition, as expected; all within 0.61.
+- rms's error comes from the combine, not the lanes: the accumulators
+  are added in float (`acc[0] += acc[a]`, then `udsp_vsum`), a serial
+  chain of large partial sums. `UDSP_ACC=16` on SSE2 (a 16-long chain,
+  64 lanes) reaches 1.19 ULP on noise, over the tolerance; at 8 it's
+  0.61. Combining in double would take it under 0.5; not done (a
+  rounding's worth, every pinned value in the tests would move).
+- Subnormals aren't in the corpus: nothing here scales against
+  underflow (|X| below ~1e-19 squares to 0), out of audio's range.
+
+## Sweeps
+
+`sweep.py KNOB` builds every value of one knob per build, checks each
+with `ulp.c` (a candidate over a tolerance isn't timed), then times the
+kernels the knob touches like `matrix.py` does. Session 221, Ryzen 7
+5800X, ns per call (medians; run to run a kernel moves up to ~4 %):
+
+| knob | gcc -O2 | gcc -O2 -v3 | clang -O2 -v3 | verdict |
+|---|---|---|---|---|
+| `UDSP_ACC` 1, 2, 4, **8**, 12, 16 | 8 best or within noise; 1 and 16 over rms's tolerance | 8 best; 4 equal on rms_big/minmax | 8 best; 4 close | 8 stays |
+| `UDSP_UNROLL` **on** / off | off: 1.3-2.7x slower (rms 85 -> 188, scope 25 -> 43 us) | off: 1.4-2.7x slower | no change | stays |
+| `RMS_CHUNK` 512, 1024, **4096**, 16384, 65536, 1M | 16384+: rms_big 49 -> 43 us | within noise | within noise | 4096 stays (1M: over tolerance) |
+| `-ffp-contract` **off** / fast | no change | svf 8.8 -> 7.6 us, osc_sine 1015 -> 895, bars128_planned8k 9.3 -> 8.4 us, fft_real -5 %; lufs +13 %, mix_add 64 -> 90 ns | svf, osc -13-19 %, lufs -10 %, mix_add -20 % | off stays: the synthesis half's bits (µOS's renders) |
+
+(**bold** = the library's value.) The sweeps found the hand-picked
+values right; what moved is FMA (below). The largest win on offer,
+RMS_CHUNK at 16384 on SSE2, is 6 us per million samples.
 
 ## What was learned
 
@@ -181,6 +257,13 @@ asked. Asked (`-ffp-contract=fast`), they help nothing measurably here
 and cost the loudness filter 15%: its critical path is a multiply-add
 per sample, and a 4-cycle FMA is slower on that chain than the pieces it
 replaces when the multiply is off the chain. Not used.
+
+Since the synthesis half and the planned spectrum (session 221's sweep,
+"Sweeps" above), FMA does help with AVX2: the SVF 14 %, the sine 12 %,
+the 8192-point bars 10 %. It still costs gcc's loudness filter 13 % and
+the mix 40 % (64 -> 90 ns), and it changes the bits, which ctui-daw holds
+to µOS's renders. Still not used; within the tolerances where a consumer
+turns it on.
 
 ### -O2, -O3, AVX2
 

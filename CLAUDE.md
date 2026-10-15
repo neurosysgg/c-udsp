@@ -58,6 +58,11 @@ this library.
 - A speed change is measured, not assumed: `bench/matrix.py --compare
   after` before and after it (add the kernel to bench.c if it's new), and
   `bench/README.md` updated when the picture changes.
+- A speed change keeps the answers: `bench/ulp.py` (`make ulp`) before
+  calling it done -- every kernel within its written-down tolerance in
+  ULPs (`bench/ulp.c`; a new kernel gets a reference there). A knob worth
+  trying across values goes into `bench/sweep.py`, which times only the
+  candidates that pass.
 
 ## Testing approach
 
