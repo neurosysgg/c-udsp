@@ -12,10 +12,12 @@
 #define _DEFAULT_SOURCE
 
 #include "analyze.h"
+#include "adsr.h"
 #include "ballistics.h"
 #include "delay.h"
 #include "fft.h"
 #include "gain.h"
+#include "lfo.h"
 #include "loudness.h"
 #include "osc.h"
 #include "r128.h"
@@ -26,6 +28,7 @@
 #include "spectrogram.h"
 #include "spectrum.h"
 #include "svf.h"
+#include "zdf.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -261,6 +264,28 @@ static void k_svf(void) {
   g_sink = g_out[3];
 }
 
+/* FM: a sine carrier, its phase moved by a modulator's swing */
+static UDSP_OSC g_carrier;
+static void k_osc_pm(void) {
+  udsp_osc_render_pm(&g_carrier, g_in, g_out, N);
+  g_sink = g_out[5];
+}
+
+static UDSP_ZDF g_zdf;
+static void k_zdf(void) {
+  memcpy(g_out, g_in, N * sizeof(float));
+  udsp_zdf_mono(&g_zdf, g_out, N);
+  g_sink = g_out[3];
+}
+
+/* an envelope that never settles: attack, decay and release in turn */
+static UDSP_ADSR g_adsr;
+static void k_adsr(void) {
+  udsp_adsr_gate(&g_adsr, g_adsr.stage != UDSP_ADSR_SUSTAIN);
+  udsp_adsr_render(&g_adsr, g_out, N);
+  g_sink = g_out[7];
+}
+
 static UDSP_DELAY g_delay;
 static float *g_ring;
 static void k_delay(void) {
@@ -329,6 +354,9 @@ static const KERNEL KERNELS[] = {
     {"osc_noise", N, k_osc_noise},
     {"sampler", N, k_sampler},
     {"svf", N, k_svf},
+    {"zdf", N, k_zdf},
+    {"osc_pm", N, k_osc_pm},
+    {"adsr", N, k_adsr},
     {"delay", N, k_delay},
     {"softclip", N, k_softclip},
     {"mix_add", N, k_mix_add},
@@ -409,6 +437,12 @@ int main(int argc, char **argv) {
   g_smp = (UDSP_SAMPLE){g_big, BIG / 2, 44100, 2, 0, 0, 60};
   udsp_svf_reset(&g_svf);
   udsp_svf_set(&g_svf, 1200.0f, 0.5f, UDSP_SVF_LOW, 48000);
+  udsp_zdf_reset(&g_zdf);
+  udsp_zdf_set(&g_zdf, 1200.0f, 0.5f, UDSP_ZDF_LOW, 48000);
+  udsp_osc_init(&g_carrier, UDSP_OSC_SINE, 1);
+  g_carrier.inc = udsp_osc_inc_hz(440.0, 48000);
+  memset(&g_adsr, 0, sizeof(g_adsr));
+  udsp_adsr_set(&g_adsr, 5.0f, 30.0f, 0.5f, 40.0f, 48000);
   g_ring = aligned_alloc(64, UDSP_DELAY_RING_FLOATS(24000) * sizeof(float));
   udsp_delay_init(&g_delay, g_ring, 24000);
   memset(g_out, 0, LUFS_N * sizeof(float));

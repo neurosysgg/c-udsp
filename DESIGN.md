@@ -134,7 +134,8 @@ each of these choices.
 ## The synthesis half: generators and effects
 
 Added for ctui-daw (session 215 in ctui-wm's log; ctui-wm's
-`notes/daw.md`): the blocks a DAW's instruments and effects are built
+`notes/daw.md`; the synth's blocks -- lfo, adsr, zdf, FM, udsp_exp2 --
+in session 223): the blocks a DAW's instruments and effects are built
 from, so ctui-daw, ctui-mus, ctui-wm and µOS share one DSP library.
 The first ones are lifted from µOS's utone and utracker, where they
 were written host-portable (stdint only, caller-owned memory) and
@@ -144,8 +145,14 @@ sample for sample (ctui-daw's `tests/utrk_test.c`).
 
 ```
 pitch.c     exact equal temperament: a Q20 semitone table, octaves as
-            shifts (no pow(), no drift between octaves)
-osc.c       UDSP_OSC: a 32-bit phase accumulator and five waves
+            shifts (no pow(), no drift between octaves); udsp_exp2 and a
+            fractional note's increment for a synth's pitch (no libm)
+osc.c       UDSP_OSC: a 32-bit phase accumulator and five waves; the
+            same phase-modulated (2-operator FM)
+lfo.c       UDSP_LFO: six shapes read at control rate, a sample and hold
+adsr.c      UDSP_ADSR: a linear attack, exponential decay and release
+zdf.c       UDSP_ZDF: Simper's trapezoidal SVF, mono: a voice's filter,
+            stable to 0.49 of the rate under any modulation
 sampler.c   UDSP_SAMPLE + UDSP_SAMPLER_VOICE: Q32 position, linear
             interpolation, loops that keep their fraction
 ramp.c      UDSP_RAMP: a linear envelope ramp, one step per frame
@@ -180,6 +187,12 @@ per voice; their speed-up is several chains at once -- the SVF's two
 channels in one loop, r128's channels two at a time (the same
 operations per chain, so the same bits), and several voices in the
 lanes of one vector, which is a polyphonic synth's layout (d2).
+
+**No libm where it plays.** libm's exp2, tan and pow aren't required to
+round the same in every libc (glibc and musl differ in last places), so
+what a synth computes while it plays -- a gliding pitch, an envelope's
+coefficient, a swept filter's tan -- comes from `udsp_exp2` (a Taylor
+series and ldexp, exact scaling) and the oscillator's polynomial sine.
 
 **Bits.** Built with `-ffp-contract=off` (ctui-daw does), every build --
 gcc and clang, SSE2 and AVX2, UDSP_SCALAR -- renders the same bits; with

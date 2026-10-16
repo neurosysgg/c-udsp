@@ -22,4 +22,15 @@ uint64_t udsp_pitch_ratio_q32(int semitones);
  * UDSP_NOTE_MIN..UDSP_NOTE_MAX */
 uint32_t udsp_note_millihz(int note);
 
+/* 2^x without libm's exp2 (whose last bits differ between libcs): the
+ * fraction's Taylor series to 1e-13, the exponent by ldexp (exact); x
+ * clamped to +-60. For a synth's pitch and an envelope's coefficients,
+ * computed while it plays, so a render is the same bits everywhere. */
+double udsp_exp2(double x);
+
+/* the phase increment (osc.h's) for a fractional MIDI note -- 69.0 is
+ * 440 Hz, 69.5 a quarter tone above -- any note, capped just under half
+ * the rate */
+uint32_t udsp_note_inc(double note, uint32_t rate);
+
 #endif

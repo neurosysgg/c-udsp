@@ -48,6 +48,17 @@ uint32_t udsp_osc_inc_hz(double hz, uint32_t rate);
  * little) and advances the phase by n * inc */
 void udsp_osc_render(UDSP_OSC *o, float *out, size_t n);
 
+/* the same, each sample's phase moved by pm[i] turns (any sign, any
+ * size): phase modulation, the way FM synths do FM -- pm is a
+ * modulator's output times its index. The PolyBLEP edges assume the
+ * unmodulated rate, so a modulated saw or square aliases somewhat more;
+ * noise ignores pm. pm all 0 gives udsp_osc_render's bits. */
+void udsp_osc_render_pm(UDSP_OSC *o, const float *pm, float *out, size_t n);
+
+/* the oscillator's sine at a phase in turns, 0 <= turns < 1 (an LFO's,
+ * a filter's coefficient) */
+float udsp_osc_sine(float turns);
+
 /* "sine", "square", ... <-> the wave; UDSP_OSC_WAVES for an unknown name */
 UDSP_OSC_WAVE udsp_osc_wave_by_name(const char *name);
 const char *udsp_osc_wave_name(UDSP_OSC_WAVE w);

@@ -117,7 +117,7 @@ differ from `gcc-O2-scalar`:
 | lufs | elem | 1 | 0.46 | 0.46 |
 | softclip | elem | 4 | 2.85 | 2.85* |
 | mix_add, gain_stereo | elem | 1, 0.5 | 0.50 | 0.50* |
-| osc, svf, delay, sampler, ramp, r128, scope | bits | - | = | * |
+| osc, osc_pm, svf, zdf, adsr (+ lfo, note_inc), delay, sampler, ramp, r128, scope | bits | - | = | * |
 
 - The table-driven FFTs are within 1.3-2.7 ULPs of the largest bin up to
   8192 points; the old `udsp_fft_forward()` is 40 at 2048 (its twiddles
@@ -367,6 +367,15 @@ are measured against:
   the two chains: 9687 -> 5532 ns gcc -O2, 8797 -> 4828 gcc -O2 -v3, 7543
   -> 4166 clang -O2 -v3 (1.75-1.82x). A polyphonic synth (d2 in
   ctui-daw) takes the same idea further: its voices in the lanes.
+- The synth's (session 223, `matrix.py -k`, the same machine, ns per
+  2048 mono samples): `osc_pm` (a sine phase-modulated by a signal: FM)
+  3974 gcc -O2, 1457 gcc -O2 -v3, 1035 clang -O3 -v3 -- 1.4x the plain
+  sine, the wrap of the moved phase and the load; `zdf` (Simper's SVF,
+  one channel) 6904 gcc, 5644 clang -v3: ~3.4 ns a sample, serial, about
+  twice Chamberlin's per channel (its price: stable to 0.49 of the rate);
+  `adsr` ~2100 everywhere (a stage switch a sample). ctui-daw's synth
+  with 16 voices, FM and both oscillators runs at ~1 % of a core: voices
+  in lanes can wait.
 - The elementwise ones gain 3-7x (mix_add, gain_stereo, softclip).
   ramp_held doesn't move: its scalar build's plain `p[i] *= e` loop is
   auto-vectorised by gcc at -O2 too; the explicit vectors make that not

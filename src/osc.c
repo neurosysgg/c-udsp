@@ -168,6 +168,48 @@ void udsp_osc_render(UDSP_OSC *o, float *out, size_t n) {
   o->phase = phase;
 }
 
+/* t wrapped into [0, 1): truncation, one down below 0 -- exact, the
+ * same in a lane as in the scalar path */
+static float wrap_turns(float t) {
+  float w = t - (float)(int32_t)t;
+  return w < 0.0f ? w + 1.0f : w;
+}
+
+void udsp_osc_render_pm(UDSP_OSC *o, const float *pm, float *out, size_t n) {
+  if (o->wave == UDSP_OSC_NOISE) {
+    udsp_osc_render(o, out, n);
+    return;
+  }
+  size_t i = 0;
+  const float dt = (float)o->inc * TURNS;
+  uint32_t phase = o->phase;
+#if UDSP_W > 1
+  UDSP_VU ph;
+  for (int k = 0; k < UDSP_W; k++) {
+    ph[k] = phase + (uint32_t)k * o->inc;
+  }
+  const uint32_t step = (uint32_t)UDSP_W * o->inc;
+  const UDSP_VF zero = udsp_vsplat(0.0f), one = udsp_vsplat(1.0f);
+  for (; i + UDSP_W <= n; i += UDSP_W) {
+    UDSP_VF t =
+        __builtin_convertvector(ph, UDSP_VF) * TURNS + udsp_vload(pm + i);
+    t = t -
+        __builtin_convertvector(__builtin_convertvector(t, UDSP_VI), UDSP_VF);
+    t = udsp_vsel(t < zero, t + one, t);
+    udsp_vstore(out + i, vwave(o->wave, t, dt));
+    ph += step;
+  }
+  phase = ph[0];
+#endif
+  for (; i < n; i++) {
+    out[i] = wave_at(o->wave, wrap_turns((float)phase * TURNS + pm[i]), dt);
+    phase += o->inc;
+  }
+  o->phase = phase;
+}
+
+float udsp_osc_sine(float turns) { return sine_turns(turns); }
+
 static const char WAVE_NAMES[UDSP_OSC_WAVES][9] = {
     "sine", "square", "saw", "triangle", "noise",
 };

@@ -31,11 +31,14 @@
  * reaches (-380 dBFS). */
 #define _DEFAULT_SOURCE
 
+#include "adsr.h"
 #include "analyze.h"
 #include "delay.h"
 #include "fft.h"
 #include "gain.h"
+#include "lfo.h"
 #include "loudness.h"
+#include "pitch.h"
 #include "osc.h"
 #include "r128.h"
 #include "ramp.h"
@@ -44,6 +47,7 @@
 #include "shape.h"
 #include "spectrum.h"
 #include "svf.h"
+#include "zdf.h"
 
 #include <float.h>
 #include <math.h>
@@ -480,6 +484,58 @@ static double k_svf(const float *x, size_t n) {
   return 0.0;
 }
 
+/* every wave's phase moved by the signal (a modulator's swing) */
+static double k_osc_pm(const float *x, size_t n) {
+  for (int w = 0; w < UDSP_OSC_WAVES; w++) {
+    UDSP_OSC o;
+    udsp_osc_init(&o, (UDSP_OSC_WAVE)w, 1);
+    o.inc = udsp_osc_inc_hz(440.0, 48000);
+    udsp_osc_render_pm(&o, x, g_got, n);
+    hash_floats(g_got, n);
+  }
+  return 0.0;
+}
+
+static double k_zdf(const float *x, size_t n) {
+  for (int mode = 0; mode <= UDSP_ZDF_NOTCH; mode++) {
+    UDSP_ZDF f;
+    udsp_zdf_reset(&f);
+    udsp_zdf_set(&f, 1200.0f, 0.8f, (UDSP_ZDF_MODE)mode, 48000);
+    memcpy(g_got, x, n * sizeof(float));
+    udsp_zdf_mono(&f, g_got, n);
+    hash_floats(g_got, n);
+  }
+  return 0.0;
+}
+
+/* an envelope through its stages, and the pitch and LFO math under it */
+static double k_adsr(const float *x, size_t n) {
+  (void)x;
+  UDSP_ADSR e;
+  memset(&e, 0, sizeof(e));
+  udsp_adsr_set(&e, 3.0f, 10.0f, 0.4f, 15.0f, 48000);
+  udsp_adsr_gate(&e, 1);
+  udsp_adsr_render(&e, g_got, n / 2);
+  udsp_adsr_gate(&e, 0);
+  udsp_adsr_render(&e, g_got + n / 2, n - n / 2);
+  hash_floats(g_got, n);
+  UDSP_LFO l;
+  for (int s = 0; s < UDSP_LFO_SHAPES; s++) {
+    udsp_lfo_init(&l, (UDSP_LFO_SHAPE)s, 3);
+    l.inc = udsp_osc_inc_hz(5.3, 48000);
+    for (size_t i = 0; i < n; i++) {
+      g_got[i] = udsp_lfo_value(&l);
+      udsp_lfo_advance(&l, 32);
+    }
+    hash_floats(g_got, n);
+  }
+  for (size_t i = 0; i < n; i++) {
+    g_got[i] = (float)udsp_note_inc(20.0 + (double)i * 0.05, 48000);
+  }
+  hash_floats(g_got, n);
+  return 0.0;
+}
+
 static float g_ring[UDSP_DELAY_RING_FLOATS(4096)];
 static double k_delay(const float *x, size_t n) {
   UDSP_DELAY d;
@@ -578,6 +634,9 @@ static const KERNEL KERNELS[] = {
     {"gain_stereo", M_ELEM, 0.5, k_gain_stereo, 2048},
     {"osc", M_BITS, 0.0, k_osc, 2048},
     {"svf", M_BITS, 0.0, k_svf, 2048},
+    {"zdf", M_BITS, 0.0, k_zdf, 2048},
+    {"osc_pm", M_BITS, 0.0, k_osc_pm, 2048},
+    {"adsr", M_BITS, 0.0, k_adsr, 2048},
     {"delay", M_BITS, 0.0, k_delay, 2048},
     {"sampler", M_BITS, 0.0, k_sampler, 2048},
     {"ramp", M_BITS, 0.0, k_ramp, 2048},

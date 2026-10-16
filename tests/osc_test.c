@@ -122,6 +122,51 @@ static void test_noise(void) {
                    "another seed is another sequence");
 }
 
+/* phase modulation: none is the plain render; a constant offset is the
+ * wave shifted; a modulator's swing splits anywhere the same */
+static void test_pm(void) {
+  float pm[301], want[301], got[301];
+  for (int w = 0; w < UDSP_OSC_WAVES; w++) {
+    UDSP_OSC a = make((UDSP_OSC_WAVE)w, udsp_osc_inc_hz(1234.5, RATE));
+    UDSP_OSC b = a;
+    memset(pm, 0, sizeof(pm));
+    udsp_osc_render(&a, want, 301);
+    udsp_osc_render_pm(&b, pm, got, 301);
+    UDSP_TEST_ASSERT(memcmp(want, got, sizeof(got)) == 0 && a.phase == b.phase,
+                     "%s: pm 0 is the plain render, to the bit",
+                     udsp_osc_wave_name((UDSP_OSC_WAVE)w));
+  }
+  UDSP_OSC a = make(UDSP_OSC_SINE, udsp_osc_inc_millihz(1000000, RATE));
+  for (int i = 0; i < 301; i++) {
+    pm[i] = -1.75f; /* a quarter turn, from below zero */
+  }
+  udsp_osc_render_pm(&a, pm, got, 301);
+  float worst = 0.0f;
+  for (int i = 0; i < 301; i++) {
+    float d = fabsf(got[i] - (float)cos(6.283185307179586 * 1000.0 * i / RATE));
+    worst = d > worst ? d : worst;
+  }
+  UDSP_TEST_ASSERT(worst < 1e-5f, "a quarter turn on is the cosine (%g)",
+                   (double)worst);
+  for (int i = 0; i < 301; i++) {
+    pm[i] = 1.3f * (float)sin(i * 0.07);
+  }
+  UDSP_OSC c = make(UDSP_OSC_SAW, udsp_osc_inc_hz(220.0, RATE)), d = c;
+  float parts[301];
+  udsp_osc_render_pm(&c, pm, got, 301);
+  udsp_osc_render_pm(&d, pm, parts, 5);
+  udsp_osc_render_pm(&d, pm + 5, parts + 5, 296);
+  int bounded = 1;
+  for (int i = 0; i < 301; i++) {
+    bounded &= fabsf(got[i]) <= 1.1f;
+  }
+  UDSP_TEST_ASSERT(memcmp(got, parts, sizeof(got)) == 0 && bounded,
+                   "modulated past a turn either way: split anywhere, bounded");
+  UDSP_TEST_ASSERT(fabsf(udsp_osc_sine(0.25f) - 1.0f) < 1e-5f &&
+                       udsp_osc_sine(0.0f) == 0.0f,
+                   "the sine at a quarter turn and at zero");
+}
+
 static void test_names(void) {
   int ok = 1;
   for (int w = 0; w < UDSP_OSC_WAVES; w++) {
@@ -140,6 +185,7 @@ int main(void) {
   test_saw_and_square_away_from_edges();
   test_dc_saw_without_increment();
   test_split_renders_identical();
+  test_pm();
   test_phase_advances();
   test_noise();
   test_names();

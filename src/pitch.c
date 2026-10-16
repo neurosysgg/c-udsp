@@ -1,5 +1,9 @@
 #include "pitch.h"
 
+#include <math.h>
+
+#include "osc.h"
+
 static const uint64_t SEMITONE_Q20[12] = {
     1048576, 1110928, 1176987, 1246974, 1321123, 1399681,
     1482910, 1571089, 1664511, 1763488, 1868350, 1979448,
@@ -33,4 +37,22 @@ uint32_t udsp_note_millihz(int note) {
   uint64_t v = (C_MINUS1_UHZ * SEMITONE_Q20[note % 12]) >> 20;
   v <<= note / 12;
   return (uint32_t)(v / 1000ull);
+}
+
+double udsp_exp2(double x) {
+  x = x > 60.0 ? 60.0 : (x < -60.0 ? -60.0 : x);
+  /* the nearest whole exponent, the rest in [-0.5, 0.5] */
+  int n = (int)(x + (x >= 0.0 ? 0.5 : -0.5));
+  const double y = (x - n) * 0.6931471805599453;
+  double p = 1.0;
+  for (int k = 11; k >= 1; k--) {
+    p = 1.0 + p * y / k;
+  }
+  return ldexp(p, n);
+}
+
+uint32_t udsp_note_inc(double note, uint32_t rate) {
+  double hz = 440.0 * udsp_exp2((note - 69.0) / 12.0);
+  const double top = rate * 0.499;
+  return udsp_osc_inc_hz(hz < top ? hz : top, rate);
 }
