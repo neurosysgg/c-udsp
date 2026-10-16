@@ -75,7 +75,13 @@ build).
 stretch as ~11 s of 48 kHz stereo, then the result): 2.85 ms with gcc -O2,
 2.79 with gcc -O3 -march=x86-64-v3, 4.84 with clang -O3 -march=x86-64-v3,
 i.e. ~3900x real time. It's the two biquads per sample (a recursion, so
-scalar), same as the meter's; a scanner's decoding costs more.
+scalar), same as the meter's; a scanner's decoding costs more. Since
+session 221 two channels run in one loop (each its own chain of
+multiply-adds; they overlap): gcc -O2 2.76 -> 1.85 ms, gcc -O2 -v3 2.73 ->
+1.67, clang -O2 5.39 -> 2.99, clang -O2 -v3 with `-ffp-contract=off` 3.72
+-> 2.48; the same bits (ulp.c's `r128`: stereo and 5.1 with its LFE
+skipped). Only clang -v3 contracting (its default) is no faster (3.28 ->
+3.45): its fused chains are the latency either way.
 
 ## ULPs
 
@@ -87,7 +93,7 @@ names (ulp.c's head): the value itself for elementwise kernels, the input
 sample for the windows, the largest output for transforms (an FFT's
 rounding spreads over every bin), sum |x| for a sum; peak, min/max and
 the stereo average must be exact. The synthesis half's recurrences (osc,
-svf, delay, sampler, ramp) and the scope have no reference, only a hash
+svf, delay, sampler, ramp, r128) and the scope have no reference, only a hash
 of their output bits, which `ulp.py` compares with the plain-C build's.
 Each kernel has a written-down tolerance; `make test-variants` fails a
 build over one, `ulp.py` marks it `!`, and `sweep.py` won't time it.
@@ -111,7 +117,7 @@ differ from `gcc-O2-scalar`:
 | lufs | elem | 1 | 0.46 | 0.46 |
 | softclip | elem | 4 | 2.85 | 2.85* |
 | mix_add, gain_stereo | elem | 1, 0.5 | 0.50 | 0.50* |
-| osc, svf, delay, sampler, ramp, scope | bits | - | = | * |
+| osc, svf, delay, sampler, ramp, r128, scope | bits | - | = | * |
 
 - The table-driven FFTs are within 1.3-2.7 ULPs of the largest bin up to
   8192 points; the old `udsp_fft_forward()` is 40 at 2048 (its twiddles
@@ -354,10 +360,13 @@ are measured against:
   faster and change the bits (and the match with µOS's renders); a
   band-limited set of its own can make that trade later.
 - The serial recurrences (SVF, delay, noise, the sampler) don't
-  vectorise within a voice. The SVF is the slowest at ~4.7 ns a sample
-  (the clamps and the mode select every sample) -- 0.02 % of a core per
-  instance at 48 kHz, so nothing to do yet; a polyphonic synth (d2 in
-  ctui-daw) runs its voices in the lanes instead.
+  vectorise within a voice. The SVF was the slowest at ~4.7 ns a sample:
+  one channel's whole block, then the other's, each a chain of ~20
+  cycles a sample (sub, mul, add, clamp, mul, add, clamp). Both channels
+  in one loop (session 221; the same operations, the same bits) overlap
+  the two chains: 9687 -> 5532 ns gcc -O2, 8797 -> 4828 gcc -O2 -v3, 7543
+  -> 4166 clang -O2 -v3 (1.75-1.82x). A polyphonic synth (d2 in
+  ctui-daw) takes the same idea further: its voices in the lanes.
 - The elementwise ones gain 3-7x (mix_add, gain_stereo, softclip).
   ramp_held doesn't move: its scalar build's plain `p[i] *= e` loop is
   auto-vectorised by gcc at -O2 too; the explicit vectors make that not

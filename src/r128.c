@@ -62,25 +62,49 @@ void udsp_r128_init(UDSP_R128 *m, int sample_rate, int channels) {
   m->hop = (size_t)((double)sample_rate / 10.0 + 0.5);
 }
 
-/* one channel's K-weighted sum of squares over n frames, both stages in
+/* one sample through one channel's K-weighting, both stages in
  * transposed Direct Form II as loudness.c's; doubles, since stage 2's
- * poles sit at ~0.995 where float state drifts */
-static double channel_sumsq(const double k[2][5], double *z, const float *x,
-                            size_t n, int stride) {
+ * poles sit at ~0.995 where float state drifts. z is the four states */
+static inline double kweight_step(const double k[2][5], double z[4],
+                                  double v) {
   const double *f = k[0], *g = k[1];
-  double s1 = z[0], s2 = z[1], t1 = z[2], t2 = z[3], sumsq = 0.0;
-  for (size_t i = 0; i < n; i++) {
-    double v = x[i * (size_t)stride];
-    double y = f[0] * v + s1;
-    s1 = f[1] * v - f[3] * y + s2;
-    s2 = f[2] * v - f[4] * y;
-    double o = g[0] * y + t1;
-    t1 = g[1] * y - g[3] * o + t2;
-    t2 = g[2] * y - g[4] * o;
-    sumsq += o * o;
+  double y = f[0] * v + z[0];
+  z[0] = f[1] * v - f[3] * y + z[1];
+  z[1] = f[2] * v - f[4] * y;
+  double o = g[0] * y + z[2];
+  z[2] = g[1] * y - g[3] * o + z[3];
+  z[3] = g[2] * y - g[4] * o;
+  return o;
+}
+
+/* channels a and b's K-weighted sums of squares over n frames (b < 0:
+ * a alone), in one loop: each channel is one serial chain of
+ * multiply-adds, two of them overlap (~1.8x over a channel at a time),
+ * the same operations per channel, so the same bits */
+static void channel_sumsq(const double k[2][5], double (*z)[4],
+                          const float *x, size_t n, int stride, int a, int b,
+                          double *sa, double *sb) {
+  double za[4], zb[4] = {0}, qa = 0.0, qb = 0.0;
+  memcpy(za, z[a], sizeof(za));
+  if (b < 0) {
+    for (size_t i = 0; i < n; i++) {
+      double o = kweight_step(k, za, x[i * (size_t)stride + (size_t)a]);
+      qa += o * o;
+    }
+  } else {
+    memcpy(zb, z[b], sizeof(zb));
+    for (size_t i = 0; i < n; i++) {
+      const float *frame = x + i * (size_t)stride;
+      double oa = kweight_step(k, za, frame[a]);
+      double ob = kweight_step(k, zb, frame[b]);
+      qa += oa * oa;
+      qb += ob * ob;
+    }
+    memcpy(z[b], zb, sizeof(zb));
   }
-  z[0] = s1, z[1] = s2, z[2] = t1, z[3] = t2;
-  return sumsq;
+  memcpy(z[a], za, sizeof(za));
+  *sa = qa;
+  *sb = qb;
 }
 
 static void add_block(UDSP_R128_HIST *h, double energy) {
@@ -109,11 +133,28 @@ void udsp_r128_add(UDSP_R128 *m, const float *interleaved, size_t frames) {
     if (n > frames) {
       n = frames;
     }
-    for (int c = 0; c < m->channels; c++) {
-      if (m->weight[c] != 0.0f) {
-        m->acc += m->weight[c] *
-                  channel_sumsq(m->k, m->z[c], interleaved + c, n, m->channels);
+    /* the weighted channels two at a time, added in channel order */
+    int c = 0;
+    for (;;) {
+      while (c < m->channels && m->weight[c] == 0.0f) {
+        c++;
       }
+      int d = c + 1;
+      while (d < m->channels && m->weight[d] == 0.0f) {
+        d++;
+      }
+      if (c >= m->channels) {
+        break;
+      }
+      double sc, sd;
+      channel_sumsq(m->k, m->z, interleaved, n, m->channels, c,
+                    d < m->channels ? d : -1, &sc, &sd);
+      m->acc += m->weight[c] * sc;
+      if (d >= m->channels) {
+        break;
+      }
+      m->acc += m->weight[d] * sd;
+      c = d + 1;
     }
     m->acc_n += n;
     interleaved += n * (size_t)m->channels;

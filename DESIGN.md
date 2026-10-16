@@ -176,8 +176,10 @@ vector loop and the scalar tail are the same operations in the same
 order, so a block split anywhere gives the same bits (the tests split
 renders at odd places and compare with memcmp). Serial recurrences --
 the SVF, the delay, noise, the sampler's interpolation -- stay scalar
-per voice; their speed-up is several voices in the lanes of one vector,
-which is a polyphonic synth's layout (d2), not a single voice's.
+per voice; their speed-up is several chains at once -- the SVF's two
+channels in one loop, r128's channels two at a time (the same
+operations per chain, so the same bits), and several voices in the
+lanes of one vector, which is a polyphonic synth's layout (d2).
 
 **Bits.** Built with `-ffp-contract=off` (ctui-daw does), every build --
 gcc and clang, SSE2 and AVX2, UDSP_SCALAR -- renders the same bits; with

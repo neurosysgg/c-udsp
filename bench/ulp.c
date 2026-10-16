@@ -37,6 +37,7 @@
 #include "gain.h"
 #include "loudness.h"
 #include "osc.h"
+#include "r128.h"
 #include "ramp.h"
 #include "sampler.h"
 #include "scope.h"
@@ -509,6 +510,33 @@ static double k_ramp(const float *x, size_t n) {
   return 0.0;
 }
 
+/* a program's loudness over the signal as stereo, then as 5.1 (its LFE
+ * weighted 0, skipped): the result, the peak and the filter state, bits
+ * only */
+static UDSP_R128 g_r128;
+static double k_r128(const float *x, size_t n) {
+  static const int CHANNELS[] = {2, 6};
+  for (int t = 0; t < 2; t++) {
+    int ch = CHANNELS[t];
+    udsp_r128_init(&g_r128, 48000, ch);
+    for (int r = 0; r < 8; r++) {
+      udsp_r128_add(&g_r128, x, n / (size_t)ch);
+    }
+    float out[2] = {(float)udsp_r128_integrated(&g_r128.hist),
+                    g_r128.hist.peak};
+    hash_floats(out, 2);
+    for (int c = 0; c < ch; c++) {
+      float z[4];
+      for (int j = 0; j < 4; j++) {
+        z[j] = (float)g_r128.z[c][j];
+      }
+      hash_floats(z, 4);
+    }
+    g_hash = (g_hash ^ (uint64_t)g_r128.hops) * 0x100000001b3ull;
+  }
+  return 0.0;
+}
+
 static double k_scope(const float *x, size_t n) {
   udsp_scope_extract(x, n, g_got);
   hash_floats(g_got, UDSP_SCOPE_POINTS);
@@ -554,6 +582,7 @@ static const KERNEL KERNELS[] = {
     {"sampler", M_BITS, 0.0, k_sampler, 2048},
     {"ramp", M_BITS, 0.0, k_ramp, 2048},
     {"scope", M_BITS, 0.0, k_scope, 2048},
+    {"r128", M_BITS, 0.0, k_r128, 8192},
 };
 
 int main(int argc, char **argv) {
