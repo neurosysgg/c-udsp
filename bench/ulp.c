@@ -47,6 +47,9 @@
 #include "scope.h"
 #include "shape.h"
 #include "spectrum.h"
+#include "dyn.h"
+#include "eq.h"
+#include "fdn.h"
 #include "svf.h"
 #include "zdf.h"
 
@@ -434,6 +437,77 @@ static double k_softclip(const float *x, size_t n) {
   return worst(M_ELEM, g_got, g_ref, NULL, 0, n);
 }
 
+/* dynamics' own log2 and exp2, against libm's in double */
+static double k_log2f(const float *x, size_t n) {
+  for (size_t i = 0; i < n; i++) {
+    float v = fabsf(x[i]) + 0.001f;
+    g_got[i] = udsp_log2f(v);
+    g_ref[i] = log2((double)v);
+  }
+  hash_floats(g_got, n);
+  return worst(M_ELEM, g_got, g_ref, NULL, 0, n);
+}
+
+static double k_exp2f(const float *x, size_t n) {
+  for (size_t i = 0; i < n; i++) {
+    float v = x[i] * 20.0f;
+    v = v > 100.0f ? 100.0f : (v < -100.0f ? -100.0f : v);
+    g_got[i] = udsp_exp2f(v);
+    g_ref[i] = exp2((double)v);
+  }
+  hash_floats(g_got, n);
+  return worst(M_ELEM, g_got, g_ref, NULL, 0, n);
+}
+
+/* the signal as stereo keying a compressor (peak, then RMS) and a gate,
+ * and through a limiter: their gains and output, bits only */
+static double k_dyn(const float *x, size_t n) {
+  for (int rms = 0; rms < 2; rms++) {
+    UDSP_COMP c;
+    udsp_comp_reset(&c);
+    udsp_comp_set(&c, -24.0f, 4.0f, 6.0f, 2.0f, 80.0f, rms, 48000);
+    udsp_comp_gain(&c, x, g_got, n / 2);
+    hash_floats(g_got, n / 2);
+  }
+  UDSP_GATE g;
+  udsp_gate_set(&g, -30.0f, 4.0f, -40.0f, 0.5f, 5.0f, 20.0f, 48000);
+  udsp_gate_reset(&g);
+  udsp_gate_gain(&g, x, g_got, n / 2);
+  hash_floats(g_got, n / 2);
+  static float mem[UDSP_LIMITER_FLOATS(64)];
+  UDSP_LIMITER l;
+  udsp_limiter_init(&l, mem, 64);
+  udsp_limiter_set(&l, 48, 0.25f, 30.0f, 48000);
+  memcpy(g_got, x, n * sizeof(float));
+  udsp_limiter_stereo(&l, g_got, n / 2);
+  hash_floats(g_got, n);
+  return 0.0;
+}
+
+/* the reverb over the signal as stereo, modulated and diffused, and the
+ * saturator's curves at a drive of 4: bits only */
+static double k_fdn(const float *x, size_t n) {
+  static float *mem;
+  if (!mem) {
+    mem = calloc(udsp_fdn_floats(48000), sizeof(float));
+  }
+  UDSP_FDN f;
+  udsp_fdn_init(&f, mem, 48000);
+  udsp_fdn_set(&f, 0.4f, 1.2f, 5000.0f, 0.7f, 1.0f, 3.0f, 0.8f);
+  udsp_fdn_stereo(&f, x, g_got, n / 2);
+  hash_floats(g_got, n);
+  return 0.0;
+}
+
+static double k_waveshape(const float *x, size_t n) {
+  for (int k = 0; k < UDSP_SHAPES; k++) {
+    memcpy(g_got, x, n * sizeof(float));
+    udsp_waveshape(g_got, n, (UDSP_SHAPE)k, 4.0f);
+    hash_floats(g_got, n);
+  }
+  return 0.0;
+}
+
 static double k_mix_add(const float *x, size_t n) {
   for (size_t i = 0; i < n; i++) {
     g_got[i] = x[n - 1 - i];
@@ -480,6 +554,24 @@ static double k_svf(const float *x, size_t n) {
     udsp_svf_set(&s, 1200.0f, 0.5f, (UDSP_SVF_MODE)mode, 48000);
     memcpy(g_got, x, n * sizeof(float));
     udsp_svf_stereo(&s, g_got, n / 2);
+    hash_floats(g_got, n);
+  }
+  return 0.0;
+}
+
+/* every shape of the EQ's band, the signal as stereo, ramping halfway */
+static double k_eq(const float *x, size_t n) {
+  for (int shape = 0; shape < UDSP_EQ_SHAPES; shape++) {
+    UDSP_EQ_BAND b;
+    udsp_eq_reset(&b);
+    udsp_eq_set(&b, (UDSP_EQ_SHAPE)shape, 1200.0f, 2.0f, 7.5f, 48000);
+    memcpy(g_got, x, n * sizeof(float));
+    udsp_eq_stereo(&b, g_got, n / 4);
+    /* the second half ramping to another setting */
+    UDSP_EQ_BAND to;
+    udsp_eq_set(&to, (UDSP_EQ_SHAPE)shape, 300.0f, 0.7f, -9.0f, 48000);
+    udsp_eq_ramp(&b, &to, (unsigned)(n / 8));
+    udsp_eq_stereo(&b, g_got + n / 2, n / 4);
     hash_floats(g_got, n);
   }
   return 0.0;
@@ -707,6 +799,12 @@ static const KERNEL KERNELS[] = {
     {"osc", M_BITS, 0.0, k_osc, 2048},
     {"svf", M_BITS, 0.0, k_svf, 2048},
     {"zdf", M_BITS, 0.0, k_zdf, 2048},
+    {"eq", M_BITS, 0.0, k_eq, 2048},
+    {"dyn", M_BITS, 0.0, k_dyn, 2048},
+    {"fdn", M_BITS, 0.0, k_fdn, 2048},
+    {"waveshape", M_BITS, 0.0, k_waveshape, 2048},
+    {"log2f", M_ELEM, 4.0, k_log2f, 2048},
+    {"exp2f", M_ELEM, 4.0, k_exp2f, 2048},
     {"osc_pm", M_BITS, 0.0, k_osc_pm, 2048},
     {"adsr", M_BITS, 0.0, k_adsr, 2048},
     {"delay", M_BITS, 0.0, k_delay, 2048},

@@ -170,9 +170,36 @@ smooth.c    UDSP_SMOOTH: a parameter's glide to a target, a fixed length
             whatever the distance, the last frame on the target exactly
 svf.c       UDSP_SVF: Chamberlin's state-variable filter, stereo
 delay.c     UDSP_DELAY: a stereo feedback delay over the caller's ring
-shape.c     udsp_softclip: x / (1 + |x|), with makeup
+shape.c     udsp_softclip: x / (1 + |x|), with makeup; a saturator's
+            curves (soft, hard, fold, tube), no makeup
 gain.c      + udsp_gain_stereo, udsp_mix_add, udsp_pan_gains
+eq.c        UDSP_EQ_BAND: a parametric EQ's band, stereo -- Simper's SVF
+            with its outputs mixed into eight shapes (cuts at 12 and 48
+            dB an octave, shelves, a bell, a notch), its curve for a
+            screen, and a ramp: g, k and the mix moving a frame at a
+            time so a glide neither zippers nor leaves the stable region
+dyn.c       a float log2 / exp2 of its own (no libm); UDSP_COMP (a soft
+            knee, peak or RMS, attack and release in dB), UDSP_GATE
+            (hysteresis, hold, a floor) -- both a gain from a key, the
+            caller applying it (a sidechain) -- and UDSP_LIMITER, a
+            brickwall over a lookahead (the needed gain held at its
+            window's minimum, released, averaged over the window: no
+            sample past the ceiling)
+line.c      UDSP_LINE: a mono delay line a power of two long, read at a
+            whole or fractional delay (Catmull-Rom between four)
+fdn.c       UDSP_FDN: a reverb -- eight lines through a Hadamard matrix,
+            each damped and its gain set from the decay, modulated reads,
+            a predelay and four diffusing allpasses ahead
 ```
+
+The effects (session 225, ctui-daw's d2f: its EQ Eight, dynamics,
+delay, chorus, saturator and reverb are built on these) keep the
+synthesis half's rules: the caller's memory (`UDSP_LIMITER_FLOATS`,
+`udsp_fdn_floats`, `udsp_line_size`), no libm where it would change
+bits between libcs (dB through dyn.c's log2 / exp2 or pitch.c's
+`udsp_exp2`, tan as the oscillator's sine over its cosine), and the
+same bits however a caller cuts its blocks -- the FDN's modulation
+renormalised every 256 frames from its start, not per call.
 
 **State.** A generator or a filter is a recurrence: its state can't be
 handed back to the caller between samples the way ballistics.c's

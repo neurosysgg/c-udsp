@@ -1,0 +1,123 @@
+#ifndef UDSP_DYN_H
+#define UDSP_DYN_H
+
+#include <stddef.h>
+#include <stdint.h>
+
+/* Dynamics: a compressor's and a gate's gain from a key signal, and a
+ * lookahead limiter. The level work is in dB, per frame, through a
+ * float log2 / exp2 of their own (no libm: the same bits everywhere, as
+ * the rest of the synthesis half), both stereo-linked (the louder
+ * channel decides, so the image doesn't move). The compressor and the
+ * gate only work out a gain from the key: the caller applies it to
+ * whatever it likes (the key itself, or the main signal when the key is
+ * a sidechain; delayed, for lookahead), so one detector serves both. */
+
+/* log2(x) for x > 0: the exponent's bits and an odd series in (m - 1) /
+ * (m + 1), m in [0.71, 1.41); 2^x for -126 < x < 128 -- both within 3 ULPs
+ * (bench/ulp.c) */
+float udsp_log2f(float x);
+float udsp_exp2f(float x);
+
+#define UDSP_DB_PER_LOG2 6.0205999f /* 20 log10(2) */
+
+static inline float udsp_db_from_gain(float g) {
+  return UDSP_DB_PER_LOG2 * udsp_log2f(g < 1e-15f ? 1e-15f : g);
+}
+static inline float udsp_gain_from_db(float db) {
+  return udsp_exp2f(db * (1.0f / UDSP_DB_PER_LOG2));
+}
+
+/* --- the compressor ----------------------------------------------------
+ * Giannoulis, Massberg and Reiss's design (JAES 2012): a gain computer
+ * with a soft knee over the key's level, its reduction smoothed in dB by
+ * a branching one-pole (attack while it grows, release while it falls).
+ * Peak (the louder channel's |x|) or RMS (its mean square over 10 ms).
+ */
+
+typedef struct {
+  float thr, slope, knee; /* dB; 1 / ratio - 1 (0: no compression) */
+  float att, rel;         /* the smoother's poles */
+  float ms_coef;          /* RMS's pole */
+  int rms;
+  float red; /* the smoothed reduction, dB (>= 0) */
+  float ms;  /* RMS's mean square */
+} UDSP_COMP;
+
+void udsp_comp_reset(UDSP_COMP *c);
+
+/* threshold and knee in dB, ratio >= 1 (1e9 or more: a limiter's
+ * infinity), times in ms (> 0) */
+void udsp_comp_set(UDSP_COMP *c, float threshold_db, float ratio,
+                   float knee_db, float attack_ms, float release_ms, int rms,
+                   unsigned rate);
+
+/* the gain (linear, <= 1) for each of frames frames of key (interleaved
+ * stereo) into gain */
+void udsp_comp_gain(UDSP_COMP *c, const float *key, float *gain,
+                    size_t frames);
+
+/* the static curve: the level out (dB) for a steady level in (dB) */
+float udsp_comp_curve(const UDSP_COMP *c, float in_db);
+
+/* --- the gate ----------------------------------------------------------
+ * Opens when the key's peak passes the threshold, closes once it falls
+ * `ret` dB under it (hysteresis: no chatter on a level that hovers) and
+ * a hold time has passed; the gain moves to 1 or the floor through
+ * one-poles in dB, attack opening, release closing. */
+
+typedef struct {
+  float open_db, close_db, floor_db;
+  float att, rel;
+  uint32_t hold, held; /* frames: the hold, and how long it's been */
+  int open;
+  float db; /* the gain now, dB (floor .. 0) */
+} UDSP_GATE;
+
+/* the gate shut, its gain at the floor */
+void udsp_gate_reset(UDSP_GATE *g);
+
+/* the floor in dB (-inf is -100 or under: silence); ret >= 0 */
+void udsp_gate_set(UDSP_GATE *g, float threshold_db, float return_db,
+                   float floor_db, float attack_ms, float hold_ms,
+                   float release_ms, unsigned rate);
+
+void udsp_gate_gain(UDSP_GATE *g, const float *key, float *gain,
+                    size_t frames);
+
+/* --- the limiter --------------------------------------------------------
+ * A brickwall over a lookahead of n frames: the gain each frame needs is
+ * held at its minimum over the window to come, recovers at the release
+ * rate, and is averaged over the window -- so it reaches every peak's
+ * gain smoothly by the time the delayed peak gets there, and no sample
+ * out passes the ceiling. Its memory is the caller's:
+ * UDSP_LIMITER_FLOATS(cap) floats for a lookahead of up to cap frames.
+ * Its delay is the lookahead: a host's latency. */
+
+#define UDSP_LIMITER_FLOATS(cap) ((size_t)(cap) * 5 + 5)
+
+typedef struct {
+  float *mem;
+  uint32_t cap, n; /* the most frames, and the lookahead now (1..cap) */
+  float ceiling, rel;
+  float env; /* the held gain after its release */
+  double sum; /* the window's sum of env */
+  uint64_t t; /* frames in */
+  uint32_t head, tail; /* the minimum's queue */
+  float reduction; /* the last frame's gain applied (a meter's) */
+} UDSP_LIMITER;
+
+/* takes mem (UDSP_LIMITER_FLOATS(cap)) and clears it */
+void udsp_limiter_init(UDSP_LIMITER *l, float *mem, uint32_t cap);
+
+/* the lookahead in frames (1..cap; a change clears the memory -- it is
+ * a latency change, a host's to make between plays), the ceiling
+ * linear, the release in ms */
+void udsp_limiter_set(UDSP_LIMITER *l, uint32_t lookahead, float ceiling,
+                      float release_ms, unsigned rate);
+
+/* in place, interleaved stereo: the output lags the input by the
+ * lookahead */
+void udsp_limiter_stereo(UDSP_LIMITER *l, float *io, size_t frames);
+
+#endif

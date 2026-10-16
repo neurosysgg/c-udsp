@@ -117,7 +117,8 @@ differ from `gcc-O2-scalar`:
 | lufs | elem | 1 | 0.46 | 0.46 |
 | softclip | elem | 4 | 2.85 | 2.85* |
 | mix_add, gain_stereo | elem | 1, 0.5 | 0.50 | 0.50* |
-| osc, osc_pm, svf, zdf, adsr (+ lfo, note_inc), delay, sampler, resample, ramp, r128, scope | bits | - | = | * |
+| osc, osc_pm, svf, zdf, eq (+ its ramp), dyn (comp, gate, limiter), fdn, waveshape, adsr (+ lfo, note_inc), delay, sampler, resample, ramp, r128, scope | bits | - | = | * |
+| log2f, exp2f (session 225: dyn.c's own) | elem | 4 | 2.58, 2.80 | 2.58, 2.80 |
 | yin (session 224: two tones vs YIN in double) | elem | 4 | 0.40 | 0.40 |
 
 - The table-driven FFTs are within 1.3-2.7 ULPs of the largest bin up to

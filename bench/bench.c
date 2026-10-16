@@ -28,6 +28,9 @@
 #include "shape.h"
 #include "spectrogram.h"
 #include "spectrum.h"
+#include "dyn.h"
+#include "eq.h"
+#include "fdn.h"
 #include "svf.h"
 #include "zdf.h"
 
@@ -288,6 +291,42 @@ static void k_osc_pm(void) {
   g_sink = g_out[5];
 }
 
+/* a bell and a 48 dB cut: one section and four */
+static UDSP_EQ_BAND g_eq_bell, g_eq_cut;
+static void k_eq(void) {
+  memcpy(g_out, g_in, N * sizeof(float));
+  udsp_eq_stereo(&g_eq_bell, g_out, N / 2);
+  g_sink = g_out[3];
+}
+static void k_eq48(void) {
+  memcpy(g_out, g_in, N * sizeof(float));
+  udsp_eq_stereo(&g_eq_cut, g_out, N / 2);
+  g_sink = g_out[3];
+}
+
+/* a compressor's gain from a stereo key (peak), and a limiter over 1 ms
+ * of lookahead */
+static UDSP_COMP g_comp;
+static void k_comp(void) {
+  udsp_comp_gain(&g_comp, g_in, g_out, N / 2);
+  g_sink = g_out[3];
+}
+static UDSP_LIMITER g_lim;
+static float g_lim_mem[UDSP_LIMITER_FLOATS(48)];
+static void k_limiter(void) {
+  memcpy(g_out, g_in, N * sizeof(float));
+  udsp_limiter_stereo(&g_lim, g_out, N / 2);
+  g_sink = g_out[3];
+}
+
+/* the reverb: eight modulated lines, the diffusers, a predelay */
+static UDSP_FDN g_fdn;
+static float *g_fdn_mem;
+static void k_fdn(void) {
+  udsp_fdn_stereo(&g_fdn, g_in, g_out, N / 2);
+  g_sink = g_out[3];
+}
+
 static UDSP_ZDF g_zdf;
 static void k_zdf(void) {
   memcpy(g_out, g_in, N * sizeof(float));
@@ -373,6 +412,11 @@ static const KERNEL KERNELS[] = {
     {"resample", N, k_resample},
     {"yin4096", 4096, k_yin},
     {"svf", N, k_svf},
+    {"eq", N, k_eq},
+    {"eq48", N, k_eq48},
+    {"comp", N / 2, k_comp},
+    {"limiter", N / 2, k_limiter},
+    {"fdn", N / 2, k_fdn},
     {"zdf", N, k_zdf},
     {"osc_pm", N, k_osc_pm},
     {"adsr", N, k_adsr},
@@ -454,6 +498,17 @@ int main(int argc, char **argv) {
   udsp_spectrogram_init(&g_sg);
   udsp_osc_init(&g_osc, UDSP_OSC_SINE, 1);
   g_smp = (UDSP_SAMPLE){g_big, BIG / 2, 44100, 2, 0, 0, 60};
+  g_fdn_mem = calloc(udsp_fdn_floats(48000), sizeof(float));
+  udsp_fdn_init(&g_fdn, g_fdn_mem, 48000);
+  udsp_fdn_set(&g_fdn, 1.0f, 2.0f, 6000.0f, 0.6f, 0.5f, 10.0f, 1.0f);
+  udsp_comp_reset(&g_comp);
+  udsp_comp_set(&g_comp, -18.0f, 4.0f, 6.0f, 5.0f, 100.0f, 0, 48000);
+  udsp_limiter_init(&g_lim, g_lim_mem, 48);
+  udsp_limiter_set(&g_lim, 48, 0.5f, 50.0f, 48000);
+  udsp_eq_reset(&g_eq_bell);
+  udsp_eq_set(&g_eq_bell, UDSP_EQ_BELL, 1200.0f, 1.0f, 6.0f, 48000);
+  udsp_eq_reset(&g_eq_cut);
+  udsp_eq_set(&g_eq_cut, UDSP_EQ_LOW_CUT_48, 120.0f, 0.71f, 0.0f, 48000);
   udsp_svf_reset(&g_svf);
   udsp_svf_set(&g_svf, 1200.0f, 0.5f, UDSP_SVF_LOW, 48000);
   udsp_zdf_reset(&g_zdf);
