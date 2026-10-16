@@ -63,3 +63,47 @@ void udsp_sampler_render(UDSP_SAMPLER_VOICE *v, float *out, size_t frames) {
     v->pos_q32 += v->step_q32;
   }
 }
+
+uint64_t udsp_sampler_step_q32(double semitones, uint32_t src_rate,
+                               uint32_t out_rate) {
+  if (out_rate == 0) {
+    return 0;
+  }
+  double step = udsp_exp2(semitones / 12.0) * (double)src_rate /
+                (double)out_rate * 4294967296.0;
+  const double step_max = 64.0 * 4294967296.0;
+  return step >= step_max ? (uint64_t)step_max : (uint64_t)step;
+}
+
+uint64_t udsp_resample_window(uint64_t pos_q32, uint64_t step_q32,
+                              size_t frames) {
+  if (frames == 0) {
+    return 0;
+  }
+  uint64_t last = pos_q32 + step_q32 * (uint64_t)(frames - 1);
+  return (last >> 32) + 3;
+}
+
+static inline float hermite(float ym1, float y0, float y1, float y2, float x) {
+  const float c1 = 0.5f * (y1 - ym1);
+  const float c2 = ym1 - 2.5f * y0 + 2.0f * y1 - 0.5f * y2;
+  const float c3 = 0.5f * (y2 - ym1) + 1.5f * (y0 - y1);
+  return ((c3 * x + c2) * x + c1) * x + y0;
+}
+
+uint64_t udsp_resample_cubic(const float *window, uint32_t ch,
+                             uint64_t pos_q32, uint64_t step_q32, float *out,
+                             size_t frames) {
+  for (size_t f = 0; f < frames; f++) {
+    const uint64_t idx = pos_q32 >> 32;
+    const float x =
+        (float)(uint32_t)(pos_q32 & 0xffffffffull) * (1.0f / 4294967296.0f);
+    const float *p = window + (idx - 1) * ch;
+    const float l = hermite(p[0], p[ch], p[2 * ch], p[3 * ch], x);
+    out[f * 2] = l;
+    out[f * 2 + 1] =
+        ch == 2 ? hermite(p[1], p[ch + 1], p[2 * ch + 1], p[3 * ch + 1], x) : l;
+    pos_q32 += step_q32;
+  }
+  return pos_q32;
+}

@@ -58,6 +58,13 @@ r128.c           UDSP_R128: a program's integrated loudness (EBU R128 /
                  file from loudness.c for that reason, as spectrogram.c
                  is from spectrum.c.
 
+yin.c            udsp_yin(): a note's fundamental (YIN: the normalized
+                 difference function's first dip, a parabola through
+                 it) -- for a sampler mapping multi-samples whose roots
+                 aren't written down; offline, its sums in vector lanes
+                 (so 0.4 ULP of a double reference, not the same bits
+                 across widths: it never runs in a render).
+
 scope.c          udsp_scope_extract(): trigger search + pitch-period
                  autocorrelation + resample, built on nothing but a
                  caller-supplied mono buffer.
@@ -154,7 +161,10 @@ adsr.c      UDSP_ADSR: a linear attack, exponential decay and release
 zdf.c       UDSP_ZDF: Simper's trapezoidal SVF, mono: a voice's filter,
             stable to 0.49 of the rate under any modulation
 sampler.c   UDSP_SAMPLE + UDSP_SAMPLER_VOICE: Q32 position, linear
-            interpolation, loops that keep their fraction
+            interpolation, loops that keep their fraction; a cubic
+            (Hermite) resampler over a caller's window at a fractional
+            step (ctui-daw's sampler: a head in memory, the rest
+            streamed, copied into the window per block)
 ramp.c      UDSP_RAMP: a linear envelope ramp, one step per frame
 smooth.c    UDSP_SMOOTH: a parameter's glide to a target, a fixed length
             whatever the distance, the last frame on the target exactly
@@ -253,7 +263,8 @@ instead of several scattered ones:
   each good enough for what it's for, and kept so the renders stay
   comparable with µOS's to the bit. Better ones (a band-limited
   triangle, a cubic or windowed-sinc sampler, a TPT filter) come as new
-  functions beside them, not as changes to these.
+  functions beside them, not as changes to these (the cubic resampler
+  and zdf.c since).
 - **Vector sums and maxima combine in a different order than a plain
   loop.** Reductions run in 8 x lanes partial sums (flushed into a double
   every 4096 samples), so a sum can differ from a sequential one in the

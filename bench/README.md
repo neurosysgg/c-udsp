@@ -117,7 +117,8 @@ differ from `gcc-O2-scalar`:
 | lufs | elem | 1 | 0.46 | 0.46 |
 | softclip | elem | 4 | 2.85 | 2.85* |
 | mix_add, gain_stereo | elem | 1, 0.5 | 0.50 | 0.50* |
-| osc, osc_pm, svf, zdf, adsr (+ lfo, note_inc), delay, sampler, ramp, r128, scope | bits | - | = | * |
+| osc, osc_pm, svf, zdf, adsr (+ lfo, note_inc), delay, sampler, resample, ramp, r128, scope | bits | - | = | * |
+| yin (session 224: two tones vs YIN in double) | elem | 4 | 0.40 | 0.40 |
 
 - The table-driven FFTs are within 1.3-2.7 ULPs of the largest bin up to
   8192 points; the old `udsp_fft_forward()` is 40 at 2048 (its twiddles
@@ -376,6 +377,12 @@ are measured against:
   `adsr` ~2100 everywhere (a stage switch a sample). ctui-daw's synth
   with 16 voices, FM and both oscillators runs at ~1 % of a core: voices
   in lanes can wait.
+- The sampler's (session 224): `resample` (the cubic, 1024 stereo frames
+  at 7 semitones up from 44.1 kHz) 3549 gcc -O2, 3375 gcc -O2 -v3, 2606
+  clang -O3 -v3 -- ~3.4 ns a frame, three times the linear voice for
+  -87 dB instead of -52 off a sine; 64 voices at 48 kHz is ~1 % of a
+  core. `yin4096` (4096 samples, down to 40 Hz) 245 us gcc -O2, 163 us
+  -v3: per sample at load, not per block.
 - The elementwise ones gain 3-7x (mix_add, gain_stereo, softclip).
   ramp_held doesn't move: its scalar build's plain `p[i] *= e` loop is
   auto-vectorised by gcc at -O2 too; the explicit vectors make that not

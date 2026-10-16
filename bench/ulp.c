@@ -43,6 +43,7 @@
 #include "r128.h"
 #include "ramp.h"
 #include "sampler.h"
+#include "yin.h"
 #include "scope.h"
 #include "shape.h"
 #include "spectrum.h"
@@ -556,6 +557,77 @@ static double k_sampler(const float *x, size_t n) {
   return 0.0;
 }
 
+/* the cubic resampler at a fractional step, stereo, and YIN's pitch of
+ * a tone */
+static double k_resample(const float *x, size_t n) {
+  uint64_t step = udsp_sampler_step_q32(0.37, 44100, 48000);
+  size_t frames = n / 4;
+  udsp_resample_cubic(x, 2, 1ull << 32, step, g_got, frames);
+  hash_floats(g_got, frames * 2);
+  udsp_resample_cubic(x, 1, (1ull << 32) + 777, step, g_got, frames);
+  hash_floats(g_got, frames * 2);
+  return 0.0;
+}
+
+/* YIN in double, the same steps: the reference for the float one (its
+ * sums run in vector lanes, so it isn't the same bits across widths:
+ * analysis at load time, never in a render) */
+static double yin_d(const float *x, size_t n, double rate, double fmin,
+                    double fmax, double threshold) {
+  size_t tau_max = (size_t)((float)rate / (float)fmin) + 1;
+  size_t tau_min = (size_t)((float)rate / (float)fmax);
+  size_t w = n - tau_max;
+  double running = 0.0;
+  g_ref[0] = 1.0;
+  for (size_t tau = 1; tau <= tau_max; tau++) {
+    double d = 0.0;
+    for (size_t j = 0; j < w; j++) {
+      double e = (double)x[j] - x[j + tau];
+      d += e * e;
+    }
+    running += d;
+    g_ref[tau] = running > 0.0 ? d * (double)tau / running : 1.0;
+  }
+  size_t best = 0;
+  for (size_t tau = tau_min; tau < tau_max; tau++) {
+    if (g_ref[tau] < threshold) {
+      while (tau + 1 < tau_max && g_ref[tau + 1] < g_ref[tau]) {
+        tau++;
+      }
+      best = tau;
+      break;
+    }
+  }
+  if (!best) {
+    return 0.0;
+  }
+  double a = g_ref[best - 1], b = g_ref[best], c = g_ref[best + 1];
+  double den = a - 2.0 * b + c;
+  double shift = den > 0.0 ? 0.5 * (a - c) / den : 0.0;
+  return rate / ((double)best + shift);
+}
+
+/* two tones (a sine, a string-like stack of partials) */
+static double k_yin(const float *x, size_t n) {
+  (void)x;
+  double e = 0.0;
+  for (int k = 0; k < 2; k++) {
+    for (size_t i = 0; i < n; i++) {
+      double t = (double)i / 44100.0, v = 0.0;
+      for (int h = 1; h <= (k ? 6 : 1); h++) {
+        v += sin(2.0 * 3.14159265358979323846 * (k ? 98.0 : 220.0) * h * t + h) / h;
+      }
+      g_got2[i] = (float)(0.4 * v);
+    }
+    float hz = udsp_yin(g_got2, n, 44100, 60.0f, 2000.0f, 0.15f, g_got, NULL);
+    double ref = yin_d(g_got2, n, 44100.0, 60.0, 2000.0, 0.15);
+    hash_floats(&hz, 1);
+    double x1 = err_ulp(hz, ref, ref);
+    e = x1 > e ? x1 : e;
+  }
+  return e;
+}
+
 static double k_ramp(const float *x, size_t n) {
   UDSP_RAMP r;
   udsp_ramp_init(&r, 300);
@@ -639,6 +711,8 @@ static const KERNEL KERNELS[] = {
     {"adsr", M_BITS, 0.0, k_adsr, 2048},
     {"delay", M_BITS, 0.0, k_delay, 2048},
     {"sampler", M_BITS, 0.0, k_sampler, 2048},
+    {"resample", M_BITS, 0.0, k_resample, 2048},
+    {"yin", M_ELEM, 4.0, k_yin, 2048},
     {"ramp", M_BITS, 0.0, k_ramp, 2048},
     {"scope", M_BITS, 0.0, k_scope, 2048},
     {"r128", M_BITS, 0.0, k_r128, 8192},

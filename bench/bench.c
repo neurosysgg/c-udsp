@@ -23,6 +23,7 @@
 #include "r128.h"
 #include "ramp.h"
 #include "sampler.h"
+#include "yin.h"
 #include "scope.h"
 #include "shape.h"
 #include "spectrogram.h"
@@ -257,6 +258,22 @@ static void k_sampler(void) {
   g_sink = g_out[5];
 }
 
+static uint64_t g_rpos = 1ull << 32;
+static void k_resample(void) {
+  uint64_t step = udsp_sampler_step_q32(7.0, 44100, 48000);
+  if (udsp_resample_window(g_rpos, step, N / 2) + 4 > BIG / 2) {
+    g_rpos = 1ull << 32;
+  }
+  g_rpos = udsp_resample_cubic(g_smp.frames, 2, g_rpos, step, g_out, N / 2);
+  g_sink = g_out[5];
+}
+
+static float g_yin_scratch[44100 / 40 + 2];
+static void k_yin(void) {
+  g_sink = udsp_yin(g_smp.frames, 4096, 44100, 40.0f, 4000.0f, 0.15f,
+                    g_yin_scratch, NULL);
+}
+
 static UDSP_SVF g_svf;
 static void k_svf(void) {
   memcpy(g_out, g_stereo, N * sizeof(float));
@@ -353,6 +370,8 @@ static const KERNEL KERNELS[] = {
     {"osc_triangle", N, k_osc_triangle},
     {"osc_noise", N, k_osc_noise},
     {"sampler", N, k_sampler},
+    {"resample", N, k_resample},
+    {"yin4096", 4096, k_yin},
     {"svf", N, k_svf},
     {"zdf", N, k_zdf},
     {"osc_pm", N, k_osc_pm},
