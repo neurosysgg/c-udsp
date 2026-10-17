@@ -117,7 +117,7 @@ differ from `gcc-O2-scalar`:
 | lufs | elem | 1 | 0.46 | 0.46 |
 | softclip | elem | 4 | 2.85 | 2.85* |
 | mix_add, gain_stereo | elem | 1, 0.5 | 0.50 | 0.50* |
-| osc, osc_pm, svf, zdf, eq (+ its ramp), dyn (comp, gate, limiter), fdn, waveshape, adsr (+ lfo, note_inc), delay, sampler, resample, ramp, r128, scope | bits | - | = | * |
+| osc, osc_pm, svf, zdf, eq (+ its ramp), dyn (comp, gate, limiter), fdn, waveshape, adsr (+ lfo, note_inc), delay, sampler, resample, sinc (+ its table), ramp, r128, scope | bits | - | = | * |
 | log2f, exp2f (session 225: dyn.c's own) | elem | 4 | 2.58, 2.80 | 2.58, 2.80 |
 | yin (session 224: two tones vs YIN in double) | elem | 4 | 0.40 | 0.40 |
 
@@ -384,6 +384,11 @@ are measured against:
   -87 dB instead of -52 off a sine; 64 voices at 48 kHz is ~1 % of a
   core. `yin4096` (4096 samples, down to 40 Hz) 245 us gcc -O2, 163 us
   -v3: per sample at load, not per block.
+- The sinc (ctui-daw's d3d, ctui-wm session 229): `sinc` (2048 outputs
+  of one channel at 44.1 -> 48 kHz, 256 taps a row) 89 us gcc -O2, 98
+  us -v3 -- ~44 ns an output: four lanes in a fixed order whatever the
+  width (the same bits everywhere), so AVX2 has nothing to add. A
+  10-minute stereo file converts in ~2.5 s, once, at import.
 - The elementwise ones gain 3-7x (mix_add, gain_stereo, softclip).
   ramp_held doesn't move: its scalar build's plain `p[i] *= e` loop is
   auto-vectorised by gcc at -O2 too; the explicit vectors make that not

@@ -46,6 +46,7 @@
 #include "yin.h"
 #include "scope.h"
 #include "shape.h"
+#include "sinc.h"
 #include "spectrum.h"
 #include "dyn.h"
 #include "eq.h"
@@ -661,6 +662,23 @@ static double k_resample(const float *x, size_t n) {
   return 0.0;
 }
 
+/* the sinc resampler: its table (no libm: the same bits in every libc)
+ * and a run across the input's edges, exact and interpolated rows */
+static double k_sinc(const float *x, size_t n) {
+  static const uint32_t to[2] = {48000, 47999};
+  for (int r = 0; r < 2; r++) {
+    size_t floats = udsp_sinc_floats(44100, to[r], UDSP_SINC_ZEROS);
+    float *table = malloc(floats * sizeof *table);
+    UDSP_SINC s;
+    udsp_sinc_init(&s, 44100, to[r], UDSP_SINC_ZEROS, table);
+    hash_floats(table, floats);
+    udsp_sinc_run(&s, x, 0, n, 0, g_got, n);
+    hash_floats(g_got, n);
+    free(table);
+  }
+  return 0.0;
+}
+
 /* YIN in double, the same steps: the reference for the float one (its
  * sums run in vector lanes, so it isn't the same bits across widths:
  * analysis at load time, never in a render) */
@@ -810,6 +828,7 @@ static const KERNEL KERNELS[] = {
     {"delay", M_BITS, 0.0, k_delay, 2048},
     {"sampler", M_BITS, 0.0, k_sampler, 2048},
     {"resample", M_BITS, 0.0, k_resample, 2048},
+    {"sinc", M_BITS, 0.0, k_sinc, 2048},
     {"yin", M_ELEM, 4.0, k_yin, 2048},
     {"ramp", M_BITS, 0.0, k_ramp, 2048},
     {"scope", M_BITS, 0.0, k_scope, 2048},

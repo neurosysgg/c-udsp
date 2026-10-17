@@ -190,7 +190,20 @@ line.c      UDSP_LINE: a mono delay line a power of two long, read at a
 fdn.c       UDSP_FDN: a reverb -- eight lines through a Hadamard matrix,
             each damped and its gain set from the decay, modulated reads,
             a predelay and four diffusing allpasses ahead
+sinc.c      UDSP_SINC: an offline resampler -- a Kaiser-windowed sinc
+            (120 dB), polyphase over the rates' reduced ratio (rows
+            interpolated past 4096 phases), each row normalised to pass
+            DC; input in windows of one channel, the output the same
+            however it's cut (ctui-daw's audio clips, converted at import)
 ```
+
+The sinc (session 229, ctui-daw's d3d) keeps the same rules where they
+matter for an offline kernel: its table comes from a sine and an I0 of
+its own in double (libm's sin may round differently between libcs), and
+its dot product runs four lanes in a fixed order -- lane j summing taps
+j, j + 4, ..., then (0 + 1) + (2 + 3) -- whatever the vector width, so a
+file converted on any build is the same file. The caller owns the table
+(`udsp_sinc_floats`).
 
 The effects (session 225, ctui-daw's d2f: its EQ Eight, dynamics,
 delay, chorus, saturator and reverb are built on these) keep the

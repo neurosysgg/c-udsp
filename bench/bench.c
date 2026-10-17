@@ -26,6 +26,7 @@
 #include "yin.h"
 #include "scope.h"
 #include "shape.h"
+#include "sinc.h"
 #include "spectrogram.h"
 #include "spectrum.h"
 #include "dyn.h"
@@ -271,6 +272,24 @@ static void k_resample(void) {
   g_sink = g_out[5];
 }
 
+/* the sinc resampler, 44.1 -> 48 kHz, one channel (a clip imported) */
+static UDSP_SINC g_sinc;
+static float *g_sinc_table;
+static uint64_t g_sinc_pos;
+static void k_sinc(void) {
+  if (!g_sinc_table) {
+    g_sinc_table = malloc(udsp_sinc_floats(44100, 48000, UDSP_SINC_ZEROS) *
+                          sizeof(float));
+    udsp_sinc_init(&g_sinc, 44100, 48000, UDSP_SINC_ZEROS, g_sinc_table);
+  }
+  if (g_sinc_pos + N > udsp_sinc_length(&g_sinc, BIG / 2)) {
+    g_sinc_pos = 0;
+  }
+  udsp_sinc_run(&g_sinc, g_smp.frames, 0, BIG / 2, g_sinc_pos, g_out, N);
+  g_sinc_pos += N;
+  g_sink = g_out[5];
+}
+
 static float g_yin_scratch[44100 / 40 + 2];
 static void k_yin(void) {
   g_sink = udsp_yin(g_smp.frames, 4096, 44100, 40.0f, 4000.0f, 0.15f,
@@ -410,6 +429,7 @@ static const KERNEL KERNELS[] = {
     {"osc_noise", N, k_osc_noise},
     {"sampler", N, k_sampler},
     {"resample", N, k_resample},
+    {"sinc", N, k_sinc},
     {"yin4096", 4096, k_yin},
     {"svf", N, k_svf},
     {"eq", N, k_eq},
