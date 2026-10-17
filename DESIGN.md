@@ -195,6 +195,9 @@ sinc.c      UDSP_SINC: an offline resampler -- a Kaiser-windowed sinc
             interpolated past 4096 phases), each row normalised to pass
             DC; input in windows of one channel, the output the same
             however it's cut (ctui-daw's audio clips, converted at import)
+dither.c    UDSP_DITHER: TPDF dither ahead of a quantizer (two uniform
+            half steps, a xorshift32 the caller seeds: the same bits on
+            every build; ctui-daw's export at 16 / 24 bits)
 ```
 
 The sinc (session 229, ctui-daw's d3d) keeps the same rules where they
