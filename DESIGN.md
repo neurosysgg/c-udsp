@@ -194,7 +194,13 @@ sinc.c      UDSP_SINC: an offline resampler -- a Kaiser-windowed sinc
             (120 dB), polyphase over the rates' reduced ratio (rows
             interpolated past 4096 phases), each row normalised to pass
             DC; input in windows of one channel, the output the same
-            however it's cut (ctui-daw's audio clips, converted at import)
+            however it's cut (ctui-daw's audio clips, converted at import);
+            UDSP_VSINC: the live varispeed one -- one Kaiser sinc sampled
+            finely (512 points a zero crossing, 32 zeros each side, read
+            linearly between them), positions in 32.32 fixed point, the
+            kernel widened by the speed up to 4x, each output normalised;
+            interleaved channels, the same bits however the blocks are
+            cut (ctui-daw's warped clips, d7: Re-Pitch)
 dither.c    UDSP_DITHER: TPDF dither ahead of a quantizer (two uniform
             half steps, a xorshift32 the caller seeds: the same bits on
             every build; ctui-daw's export at 16 / 24 bits)
@@ -207,6 +213,20 @@ its dot product runs four lanes in a fixed order -- lane j summing taps
 j, j + 4, ..., then (0 + 1) + (2 + 3) -- whatever the vector width, so a
 file converted on any build is the same file. The caller owns the table
 (`udsp_sinc_floats`).
+
+The varispeed sinc (session 238, ctui-daw's d7) is the same kernel's
+kind made to read at a ratio that changes as it plays: one table of the
+prototype at a fine spacing instead of a row per phase of one ratio,
+and a position that is an integer frame plus a 32-bit fraction stepped
+by an integer -- so an output's taps and weights are the same numbers
+whether it's live, offline, or a block cut anywhere. Faster than 1 the
+kernel is the prototype stretched by the speed (its cutoff the read
+rate's Nyquist): what would fold back is filtered, at the cost of taps
+growing with the speed (capped at 4x; past it the kernel stays that
+wide and aliases). Each output's weights are normalised by their sum (a
+constant passes exactly whatever the fraction), and a speed of exactly 1
+at a whole frame copies the input, so a clip that isn't sped up sounds
+the same bits as one that isn't warped.
 
 The effects (session 225, ctui-daw's d2f: its EQ Eight, dynamics,
 delay, chorus, saturator and reverb are built on these) keep the

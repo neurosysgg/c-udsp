@@ -58,4 +58,47 @@ void udsp_sinc_span(const UDSP_SINC *s, uint64_t first, size_t n, int64_t *lo,
 void udsp_sinc_run(const UDSP_SINC *s, const float *in, int64_t in_first,
                    size_t in_n, uint64_t first, float *out, size_t n);
 
+/* --- varispeed: a live resampler at any ratio ----------------------------
+ *
+ * A clip warped to a tempo (a DAW's Re-Pitch: speed and pitch together)
+ * read at a ratio that changes as it plays. One Kaiser-windowed sinc
+ * sampled finely (UDSP_VSINC_PHASES points a zero crossing, read
+ * linearly between them) instead of a polyphase table per ratio; a
+ * position in fixed point (a frame and a 32-bit fraction), so the
+ * outputs are the same bits live and offline, however the blocks are
+ * cut. Faster than 1 the kernel widens by the speed (its cutoff the
+ * read rate's Nyquist: nothing aliases), up to UDSP_VSINC_SPEED_MAX --
+ * past it the kernel stays that wide. Each output is normalised by its
+ * taps' sum (a constant passes exactly), and a speed of exactly 1 at a
+ * whole frame copies the input. */
+
+#define UDSP_VSINC_ZEROS 32         /* each side at speed 1: 64 taps, ~100 dB */
+#define UDSP_VSINC_PHASES 512       /* the kernel's points a zero crossing */
+#define UDSP_VSINC_SPEED_MAX 4      /* the widest kernel, in speeds */
+#define UDSP_VSINC_ONE (1ull << 32) /* a step of one input frame */
+
+typedef struct {
+  uint32_t zeros;
+  const float *table; /* zeros * UDSP_VSINC_PHASES + 2 points, |x| from 0 */
+} UDSP_VSINC;
+
+/* the floats udsp_vsinc_init's table needs (0 for zeros 0); zeros at
+ * most UDSP_VSINC_ZEROS (the run's scratch is sized for it) */
+size_t udsp_vsinc_floats(uint32_t zeros);
+void udsp_vsinc_init(UDSP_VSINC *k, uint32_t zeros, float *table);
+
+/* the input frames [*lo, *hi) the n outputs from (frame, frac) on read,
+ * stepping by step (UDSP_VSINC_ONE a frame: the speed in 32.32) */
+void udsp_vsinc_span(const UDSP_VSINC *k, int64_t frame, uint32_t frac,
+                     uint64_t step, size_t n, int64_t *lo, int64_t *hi);
+
+/* n outputs into out (every out_stride floats) from position (frame,
+ * frac) on, stepping by step, of channels channels of the interleaved
+ * input whose frames [in_first, in_first + in_n) are at in (the rest
+ * silence); out gets channels floats an output, interleaved. The
+ * position after the last output: frame + ((frac + n * step) >> 32) */
+void udsp_vsinc_run(const UDSP_VSINC *k, const float *in, uint32_t channels,
+                    int64_t in_first, size_t in_n, int64_t frame, uint32_t frac,
+                    uint64_t step, float *out, size_t out_stride, size_t n);
+
 #endif

@@ -195,6 +195,125 @@ static void test_impulse(void) {
                    "an impulse's response sums to up / down (%.6f)", sum);
 }
 
+/* --- varispeed ----------------------------------------------------------- */
+
+static float *g_vtable;
+static UDSP_VSINC g_vs;
+
+static uint64_t speed_q(double s) { return (uint64_t)(s * UDSP_VSINC_ONE); }
+
+static void test_vs_identity(void) {
+  g_vtable = malloc(udsp_vsinc_floats(UDSP_VSINC_ZEROS) * sizeof *g_vtable);
+  udsp_vsinc_init(&g_vs, UDSP_VSINC_ZEROS, g_vtable);
+  UDSP_TEST_ASSERT(udsp_vsinc_floats(32) == 32u * UDSP_VSINC_PHASES + 2 &&
+                       udsp_vsinc_floats(0) == 0,
+                   "the table's size");
+  float in[2 * 300], out[2 * 200];
+  for (size_t i = 0; i < 600; i++) {
+    in[i] = (float)((i * 7919) % 1000) / 1000.0f - 0.5f;
+  }
+  udsp_vsinc_run(&g_vs, in, 2, 0, 300, 50, 0, UDSP_VSINC_ONE, out, 2, 200);
+  UDSP_TEST_ASSERT(!memcmp(out, in + 100, sizeof out),
+                   "speed 1 at a whole frame: the input itself, stereo");
+}
+
+static void test_vs_dc(void) {
+  static float in[4000], out[500];
+  for (size_t i = 0; i < 4000; i++) {
+    in[i] = 0.5f;
+  }
+  static const double speeds[] = {0.25, 0.7, 1.0, 1.37, 3.1, 6.0};
+  for (size_t k = 0; k < sizeof speeds / sizeof *speeds; k++) {
+    udsp_vsinc_run(&g_vs, in, 1, 0, 4000, 300, 0x12345678u, speed_q(speeds[k]),
+                   out, 1, 500);
+    double worst = 0.0;
+    for (size_t i = 0; i < 500; i++) {
+      worst = fabs(out[i] - 0.5) > worst ? fabs(out[i] - 0.5) : worst;
+    }
+    UDSP_TEST_ASSERT(worst < 1e-6, "a constant through at speed %.2f (%.2g)",
+                     speeds[k], worst);
+  }
+}
+
+/* a sine at speed s against the sine it should become */
+static double vs_sine_error(double hz, double s) {
+  const uint32_t rate = 48000;
+  const size_t n_in = 24000, n = 4000;
+  float *in = sine(hz, rate, n_in);
+  float *out = malloc(n * sizeof *out);
+  const int64_t frame = 1000;
+  udsp_vsinc_run(&g_vs, in, 1, 0, n_in, frame, 0, speed_q(s), out, 1, n);
+  const double step = (double)speed_q(s) / UDSP_VSINC_ONE;
+  double worst = 0.0;
+  for (size_t i = 0; i < n; i++) {
+    double ideal = 0.5 * sin(2.0 * M_PI * hz * (frame + i * step) / rate);
+    worst = fabs(out[i] - ideal) > worst ? fabs(out[i] - ideal) : worst;
+  }
+  free(in);
+  free(out);
+  return worst;
+}
+
+static void test_vs_sine(void) {
+  double e1 = vs_sine_error(1000.0, 1.5), e2 = vs_sine_error(5000.0, 0.7),
+         e3 = vs_sine_error(440.0, 1.0001);
+  UDSP_TEST_ASSERT(e1 < 1e-4 && e2 < 1e-4 && e3 < 1e-4,
+                   "a sine read faster, slower, a hair off: the sine it "
+                   "should be (%.2g, %.2g, %.2g; -80 dB)",
+                   e1, e2, e3);
+}
+
+/* what would fold back when read faster is filtered out instead */
+static void test_vs_alias(void) {
+  const size_t n_in = 48000, n = 8000;
+  float *in = sine(18000.0, 48000, n_in);
+  float *out = malloc(n * sizeof *out);
+  udsp_vsinc_run(&g_vs, in, 1, 0, n_in, 2000, 0, speed_q(2.0), out, 1, n);
+  double sq = 0.0;
+  for (size_t i = 0; i < n; i++) {
+    sq += (double)out[i] * out[i];
+  }
+  const double db = 10.0 * log10(sq / n / 0.125 + 1e-30);
+  UDSP_TEST_ASSERT(db < -90.0,
+                   "18 kHz read twice as fast (36 kHz: past Nyquist): gone, "
+                   "not aliased to 12 kHz (%.1f dB)",
+                   db);
+  free(in);
+  free(out);
+}
+
+/* however the outputs are cut into blocks, the same bits; a window of
+ * the span's frames gives them all */
+static void test_vs_cut(void) {
+  const size_t n_in = 20000, n = 3000;
+  float *in = sine(3000.0, 48000, n_in);
+  float *whole = malloc(n * sizeof *whole), *cut = malloc(n * sizeof *cut);
+  const uint64_t step = speed_q(1.2345);
+  udsp_vsinc_run(&g_vs, in, 1, 0, n_in, 500, 77, step, whole, 1, n);
+  int64_t frame = 500;
+  uint32_t frac = 77;
+  int same_span = 1;
+  for (size_t done = 0; done < n;) {
+    size_t len = n - done < 37 ? n - done : 37;
+    int64_t lo, hi;
+    udsp_vsinc_span(&g_vs, frame, frac, step, len, &lo, &hi);
+    /* only the span's frames given: still every output exactly */
+    udsp_vsinc_run(&g_vs, in + lo, 1, lo, (size_t)(hi - lo), frame, frac, step,
+                   cut + done, 1, len);
+    const uint64_t at = (uint64_t)frac + len * step;
+    frame += (int64_t)(at >> 32);
+    frac = (uint32_t)at;
+    done += len;
+    same_span &= lo >= 0 && hi <= (int64_t)n_in;
+  }
+  UDSP_TEST_ASSERT(same_span && !memcmp(whole, cut, n * sizeof *whole),
+                   "cut into blocks of 37, each given its span alone: the "
+                   "same bits as at once");
+  free(in);
+  free(whole);
+  free(cut);
+}
+
 int main(void) {
   test_shape();
   test_dc();
@@ -203,6 +322,12 @@ int main(void) {
   test_stopband();
   test_cut();
   test_impulse();
+  test_vs_identity();
+  test_vs_dc();
+  test_vs_sine();
+  test_vs_alias();
+  test_vs_cut();
   free(g_table);
+  free(g_vtable);
   return udsp_test_summary();
 }

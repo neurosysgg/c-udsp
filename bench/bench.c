@@ -290,6 +290,27 @@ static void k_sinc(void) {
   g_sink = g_out[5];
 }
 
+/* the varispeed sinc at 1.0595 (a semitone up), stereo: a warped clip
+ * (N outputs: N / 2 frames of two channels) */
+static UDSP_VSINC g_vs;
+static float *g_vs_table;
+static uint64_t g_vs_pos;
+static void k_vsinc(void) {
+  if (!g_vs_table) {
+    g_vs_table = malloc(udsp_vsinc_floats(UDSP_VSINC_ZEROS) * sizeof(float));
+    udsp_vsinc_init(&g_vs, UDSP_VSINC_ZEROS, g_vs_table);
+  }
+  const uint64_t step = (uint64_t)(1.0595 * UDSP_VSINC_ONE);
+  if ((g_vs_pos >> 32) + N > BIG / 4) {
+    g_vs_pos = 0;
+  }
+  udsp_vsinc_run(&g_vs, g_smp.frames, 2, 0, BIG / 4,
+                 (int64_t)(g_vs_pos >> 32) + 64, (uint32_t)g_vs_pos, step,
+                 g_out, 2, N / 2);
+  g_vs_pos += (uint64_t)(N / 2) * step;
+  g_sink = g_out[5];
+}
+
 static float g_yin_scratch[44100 / 40 + 2];
 static void k_yin(void) {
   g_sink = udsp_yin(g_smp.frames, 4096, 44100, 40.0f, 4000.0f, 0.15f,
@@ -430,6 +451,7 @@ static const KERNEL KERNELS[] = {
     {"sampler", N, k_sampler},
     {"resample", N, k_resample},
     {"sinc", N, k_sinc},
+    {"vsinc", N, k_vsinc},
     {"yin4096", 4096, k_yin},
     {"svf", N, k_svf},
     {"eq", N, k_eq},

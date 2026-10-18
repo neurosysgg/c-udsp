@@ -679,6 +679,25 @@ static double k_sinc(const float *x, size_t n) {
   return 0.0;
 }
 
+/* the varispeed sinc: its table and runs across the input's edges at a
+ * slower, a faster and a past-the-widest speed (stereo interleaved: the
+ * input as two channels) */
+static double k_vsinc(const float *x, size_t n) {
+  float *table = malloc(udsp_vsinc_floats(UDSP_VSINC_ZEROS) * sizeof *table);
+  UDSP_VSINC k;
+  udsp_vsinc_init(&k, UDSP_VSINC_ZEROS, table);
+  hash_floats(table, udsp_vsinc_floats(UDSP_VSINC_ZEROS));
+  static const double speeds[3] = {0.731, 1.618, 5.5};
+  for (int s = 0; s < 3; s++) {
+    const size_t outs = n / 2;
+    udsp_vsinc_run(&k, x, 2, 0, n / 2, -20, 0x9e3779b9u,
+                   (uint64_t)(speeds[s] * UDSP_VSINC_ONE), g_got, 2, outs / 2);
+    hash_floats(g_got, outs);
+  }
+  free(table);
+  return 0.0;
+}
+
 /* YIN in double, the same steps: the reference for the float one (its
  * sums run in vector lanes, so it isn't the same bits across widths:
  * analysis at load time, never in a render) */
@@ -829,6 +848,7 @@ static const KERNEL KERNELS[] = {
     {"sampler", M_BITS, 0.0, k_sampler, 2048},
     {"resample", M_BITS, 0.0, k_resample, 2048},
     {"sinc", M_BITS, 0.0, k_sinc, 2048},
+    {"vsinc", M_BITS, 0.0, k_vsinc, 2048},
     {"yin", M_ELEM, 4.0, k_yin, 2048},
     {"ramp", M_BITS, 0.0, k_ramp, 2048},
     {"scope", M_BITS, 0.0, k_scope, 2048},

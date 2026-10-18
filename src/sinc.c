@@ -245,3 +245,110 @@ void udsp_sinc_run(const UDSP_SINC *s, const float *in, int64_t in_first,
                  in_first, in_n, j0, s->taps);
   }
 }
+
+/* --- varispeed ------------------------------------------------------------ */
+
+#define VS_ATTEN_DB 100.0
+/* the most taps an output reads: both sides at the widest, padded */
+#define VS_TAPS_MAX(z) (2u * (z) * UDSP_VSINC_SPEED_MAX + 8u)
+
+size_t udsp_vsinc_floats(uint32_t zeros) {
+  return zeros ? (size_t)zeros * UDSP_VSINC_PHASES + 2 : 0;
+}
+
+void udsp_vsinc_init(UDSP_VSINC *k, uint32_t zeros, float *table) {
+  k->zeros = zeros;
+  k->table = table;
+  const double taps = 2.0 * zeros;
+  const double delta = (VS_ATTEN_DB - 8.0) / (2.285 * 2.0 * PI * taps);
+  const double fcut = 0.5 - delta * 0.5;
+  const double beta = 0.1102 * (VS_ATTEN_DB - 8.7);
+  const double i0_beta = bessel_i0(beta);
+  const uint32_t n = zeros * UDSP_VSINC_PHASES;
+  for (uint32_t i = 0; i <= n + 1; i++) {
+    const double x = (double)i / UDSP_VSINC_PHASES;
+    const double u = x / zeros;
+    const double w =
+        u >= 1.0 ? 0.0 : bessel_i0(beta * my_sqrt(1.0 - u * u)) / i0_beta;
+    const double sinc = i == 0 ? 2.0 * fcut : sin_pi(2.0 * fcut * x) / (PI * x);
+    table[i] = (float)(sinc * w);
+  }
+}
+
+/* the kernel's half width at step, in input frames */
+static double vs_reach(const UDSP_VSINC *k, uint64_t step) {
+  double s = (double)step / (double)UDSP_VSINC_ONE;
+  s = s < 1.0 ? 1.0 : s > UDSP_VSINC_SPEED_MAX ? UDSP_VSINC_SPEED_MAX : s;
+  return k->zeros * s;
+}
+
+void udsp_vsinc_span(const UDSP_VSINC *k, int64_t frame, uint32_t frac,
+                     uint64_t step, size_t n, int64_t *lo, int64_t *hi) {
+  const int64_t r = (int64_t)vs_reach(k, step) + 1;
+  const uint64_t last = (uint64_t)frac + (n ? (uint64_t)(n - 1) * step : 0);
+  *lo = frame - r;
+  *hi = frame + (int64_t)(last >> 32) + r + 1;
+}
+
+void udsp_vsinc_run(const UDSP_VSINC *k, const float *in, uint32_t channels,
+                    int64_t in_first, size_t in_n, int64_t frame, uint32_t frac,
+                    uint64_t step, float *out, size_t out_stride, size_t n) {
+  float w[VS_TAPS_MAX(UDSP_VSINC_ZEROS)];
+  const double reach = vs_reach(k, step);
+  /* table points an input frame of distance is */
+  const double scale = UDSP_VSINC_PHASES * k->zeros / reach;
+  const uint32_t limit = k->zeros * UDSP_VSINC_PHASES;
+  const int64_t half = (int64_t)reach + 1;
+  uint32_t taps = (uint32_t)(2 * half + 1);
+  taps = (taps + 3) & ~3u;
+  if (k->zeros > UDSP_VSINC_ZEROS || taps > VS_TAPS_MAX(UDSP_VSINC_ZEROS)) {
+    return; /* a wider kernel than the scratch holds: not one made here */
+  }
+  for (size_t o = 0; o < n; o++) {
+    const uint64_t at = (uint64_t)frac + (uint64_t)o * step;
+    const int64_t f = frame + (int64_t)(at >> 32);
+    const uint32_t fr = (uint32_t)at;
+    float *y = out + o * out_stride;
+    const int64_t rel = f - in_first;
+    if (step == UDSP_VSINC_ONE && fr == 0) { /* the input as it is */
+      for (uint32_t c = 0; c < channels; c++) {
+        y[c] = rel >= 0 && (uint64_t)rel < in_n ? in[(size_t)rel * channels + c]
+                                                : 0.0f;
+      }
+      continue;
+    }
+    /* the weights, for every channel: taps j0 .. j0 + taps - 1 */
+    const int64_t j0 = f - half + 1;
+    const double p = (double)fr / (double)UDSP_VSINC_ONE;
+    float sum4[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+    for (uint32_t t = 0; t < taps; t++) {
+      double x = (double)(j0 + (int64_t)t - f) - p;
+      x = (x < 0.0 ? -x : x) * scale;
+      float v = 0.0f;
+      if (x < (double)limit) {
+        const uint32_t i = (uint32_t)x;
+        const float mu = (float)(x - (double)i);
+        v = k->table[i] + mu * (k->table[i + 1] - k->table[i]);
+      }
+      w[t] = v;
+      sum4[t & 3] = sum4[t & 3] + v;
+    }
+    const float sum = (sum4[0] + sum4[1]) + (sum4[2] + sum4[3]);
+    const float norm = sum != 0.0f ? 1.0f / sum : 0.0f;
+    const int inside =
+        j0 >= in_first && j0 + (int64_t)taps <= in_first + (int64_t)in_n;
+    for (uint32_t c = 0; c < channels; c++) {
+      float acc[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+      for (uint32_t t = 0; t < taps; t += 4) {
+        for (uint32_t j = 0; j < 4; j++) {
+          const int64_t r = j0 + (int64_t)(t + j) - in_first;
+          const float xv = inside || (r >= 0 && (uint64_t)r < in_n)
+                               ? in[(size_t)r * channels + c]
+                               : 0.0f;
+          acc[j] = acc[j] + w[t + j] * xv;
+        }
+      }
+      y[c] = ((acc[0] + acc[1]) + (acc[2] + acc[3])) * norm;
+    }
+  }
+}
