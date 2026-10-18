@@ -158,6 +158,15 @@ osc.c       UDSP_OSC: a 32-bit phase accumulator and five waves; the
             same phase-modulated (2-operator FM)
 lfo.c       UDSP_LFO: six shapes read at control rate, a sample and hold
 adsr.c      UDSP_ADSR: a linear attack, exponential decay and release
+openv.c     UDSP_OPENV: Operator's envelope -- initial, peak, sustain and
+            end levels, each segment its time and a slope (an exponential
+            of up to 2^6 between its ends), hold / loop / trigger; beat
+            and sync as restarts the caller counts (ctui-daw's FM, d8)
+wtab.c      UDSP_WTAB: a wave of up to 64 harmonics (a saw's, a square's,
+            a triangle's, drawn partials) as band-limited tables, one per
+            octave (64 .. 1 harmonics), read linearly; UDSP_FMOP: an FM
+            operator over one (or the exact sine), phase-modulated, its
+            own feedback the DX7's average of its last two outputs
 zdf.c       UDSP_ZDF: Simper's trapezoidal SVF, mono: a voice's filter,
             stable to 0.49 of the rate under any modulation
 sampler.c   UDSP_SAMPLE + UDSP_SAMPLER_VOICE: Q32 position, linear
@@ -227,6 +236,15 @@ wide and aliases). Each output's weights are normalised by their sum (a
 constant passes exactly whatever the fraction), and a speed of exactly 1
 at a whole frame copies the input, so a clip that isn't sped up sounds
 the same bits as one that isn't warped.
+
+The FM operator (session 239, ctui-daw's d8: Operator) keeps the
+same bits on every build by reading its tables in scalar code (a gather
+has no SSE2 form, and four operators a voice are cheap) and by building
+them from the oscillator's polynomial sine, summed harmonic by harmonic
+in one order. A table's level is picked from the unmodulated increment:
+the partials a deep modulation pushes past Nyquist still fold back, as
+Operator's do. Feedback makes each sample wait on the last; a sine
+without it goes through `udsp_osc_render_pm`'s vectors.
 
 The effects (session 225, ctui-daw's d2f: its EQ Eight, dynamics,
 delay, chorus, saturator and reverb are built on these) keep the

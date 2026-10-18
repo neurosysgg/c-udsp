@@ -11,28 +11,30 @@
  * in it; -r REPS sets the runs (default 21). */
 #define _DEFAULT_SOURCE
 
-#include "analyze.h"
 #include "adsr.h"
+#include "analyze.h"
 #include "ballistics.h"
 #include "delay.h"
+#include "dyn.h"
+#include "eq.h"
+#include "fdn.h"
 #include "fft.h"
 #include "gain.h"
 #include "lfo.h"
 #include "loudness.h"
+#include "openv.h"
 #include "osc.h"
 #include "r128.h"
 #include "ramp.h"
 #include "sampler.h"
-#include "yin.h"
 #include "scope.h"
 #include "shape.h"
 #include "sinc.h"
 #include "spectrogram.h"
 #include "spectrum.h"
-#include "dyn.h"
-#include "eq.h"
-#include "fdn.h"
 #include "svf.h"
+#include "wtab.h"
+#include "yin.h"
 #include "zdf.h"
 
 #include <math.h>
@@ -331,6 +333,26 @@ static void k_osc_pm(void) {
   g_sink = g_out[5];
 }
 
+/* Operator's operators (d8): a sine with feedback (serial), a saw's
+ * table under PM, and its envelope */
+static UDSP_WTAB g_wtab;
+static UDSP_FMOP g_op_fb, g_op_tab;
+static float g_amp[N];
+static void k_fmop_fb(void) {
+  udsp_fmop_render(&g_op_fb, NULL, g_amp, g_out, N);
+  g_sink = g_out[5];
+}
+static void k_fmop_table(void) {
+  udsp_fmop_render(&g_op_tab, g_in, g_amp, g_out, N);
+  g_sink = g_out[5];
+}
+static UDSP_OPENV g_openv;
+static void k_openv(void) {
+  udsp_openv_gate(&g_openv, g_openv.stage != UDSP_OPENV_RETURN);
+  udsp_openv_render(&g_openv, g_out, N);
+  g_sink = g_out[5];
+}
+
 /* a bell and a 48 dB cut: one section and four */
 static UDSP_EQ_BAND g_eq_bell, g_eq_cut;
 static void k_eq(void) {
@@ -462,6 +484,9 @@ static const KERNEL KERNELS[] = {
     {"zdf", N, k_zdf},
     {"osc_pm", N, k_osc_pm},
     {"adsr", N, k_adsr},
+    {"fmop_fb", N, k_fmop_fb},
+    {"fmop_table", N, k_fmop_table},
+    {"openv", N, k_openv},
     {"delay", N, k_delay},
     {"softclip", N, k_softclip},
     {"mix_add", N, k_mix_add},
@@ -557,6 +582,17 @@ int main(int argc, char **argv) {
   udsp_zdf_set(&g_zdf, 1200.0f, 0.5f, UDSP_ZDF_LOW, 48000);
   udsp_osc_init(&g_carrier, UDSP_OSC_SINE, 1);
   g_carrier.inc = udsp_osc_inc_hz(440.0, 48000);
+  float harm[UDSP_WTAB_HARMONICS];
+  udsp_wtab_recipe(UDSP_WTAB_SAW, 64, harm);
+  udsp_wtab_build(&g_wtab, harm, 64);
+  for (size_t i = 0; i < N; i++) {
+    g_amp[i] = 0.8f;
+  }
+  g_op_fb = (UDSP_FMOP){NULL, 0, udsp_osc_inc_hz(440.0, 48000), 0.3f, 0, 0};
+  g_op_tab = (UDSP_FMOP){&g_wtab, 0, udsp_osc_inc_hz(110.0, 48000), 0, 0, 0};
+  UDSP_OPENV_SHAPE sh = {0.1f,  1.0f,  0.5f, 0.0f,  5.0f, 30.0f,
+                         40.0f, 20.0f, 0.5f, -0.5f, 0.3f, UDSP_OPENV_LOOP};
+  udsp_openv_init(&g_openv, &sh, 48000);
   memset(&g_adsr, 0, sizeof(g_adsr));
   udsp_adsr_set(&g_adsr, 5.0f, 30.0f, 0.5f, 40.0f, 48000);
   g_ring = aligned_alloc(64, UDSP_DELAY_RING_FLOATS(24000) * sizeof(float));

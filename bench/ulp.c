@@ -34,24 +34,26 @@
 #include "adsr.h"
 #include "analyze.h"
 #include "delay.h"
+#include "dyn.h"
+#include "eq.h"
+#include "fdn.h"
 #include "fft.h"
 #include "gain.h"
 #include "lfo.h"
 #include "loudness.h"
-#include "pitch.h"
+#include "openv.h"
 #include "osc.h"
+#include "pitch.h"
 #include "r128.h"
 #include "ramp.h"
 #include "sampler.h"
-#include "yin.h"
 #include "scope.h"
 #include "shape.h"
 #include "sinc.h"
 #include "spectrum.h"
-#include "dyn.h"
-#include "eq.h"
-#include "fdn.h"
 #include "svf.h"
+#include "wtab.h"
+#include "yin.h"
 #include "zdf.h"
 
 #include <float.h>
@@ -590,6 +592,51 @@ static double k_osc_pm(const float *x, size_t n) {
   return 0.0;
 }
 
+/* Operator's (d8): the saw's and the triangle's tables, every recipe's
+ * operator under the signal as PM, with and without feedback, the
+ * sine's; the envelope through its modes and slopes */
+static UDSP_WTAB g_wtab;
+static float g_amp[MAXN];
+static double k_fmop(const float *x, size_t n) {
+  float harm[UDSP_WTAB_HARMONICS];
+  for (int s = 0; s <= UDSP_WTAB_TRIANGLE; s++) {
+    udsp_wtab_recipe((UDSP_WTAB_SHAPE)s, 64, harm);
+    udsp_wtab_build(&g_wtab, harm, 64);
+    hash_floats(g_wtab.t[0], UDSP_WTAB_SIZE);
+    hash_floats(g_wtab.t[3], UDSP_WTAB_SIZE);
+    for (int k = 0; k < 4; k++) {
+      UDSP_FMOP o = {k & 1 ? &g_wtab : NULL,
+                     0,
+                     udsp_osc_inc_hz(k < 2 ? 220.0 : 3100.0, 48000),
+                     k & 2 ? 0.45f : 0.0f,
+                     0,
+                     0};
+      for (size_t i = 0; i < n; i++) {
+        g_amp[i] = 0.25f + 0.5f * (float)i / (float)n;
+      }
+      udsp_fmop_render(&o, x, g_amp, g_got, n);
+      hash_floats(g_got, n);
+    }
+  }
+  return 0.0;
+}
+
+static double k_openv(const float *x, size_t n) {
+  (void)x;
+  for (int m = 0; m <= UDSP_OPENV_TRIGGER; m++) {
+    UDSP_OPENV_SHAPE sh = {0.2f, 1.0f, 0.4f, 0.05f, 2.0f, 6.0f,
+                           8.0f, 3.0f, 0.6f, -0.4f, 0.9f, (UDSP_OPENV_MODE)m};
+    UDSP_OPENV e;
+    udsp_openv_init(&e, &sh, 48000);
+    udsp_openv_gate(&e, 1);
+    udsp_openv_render(&e, g_got, n / 2);
+    udsp_openv_gate(&e, 0);
+    udsp_openv_render(&e, g_got + n / 2, n - n / 2);
+    hash_floats(g_got, n);
+  }
+  return 0.0;
+}
+
 static double k_zdf(const float *x, size_t n) {
   for (int mode = 0; mode <= UDSP_ZDF_NOTCH; mode++) {
     UDSP_ZDF f;
@@ -844,6 +891,8 @@ static const KERNEL KERNELS[] = {
     {"exp2f", M_ELEM, 4.0, k_exp2f, 2048},
     {"osc_pm", M_BITS, 0.0, k_osc_pm, 2048},
     {"adsr", M_BITS, 0.0, k_adsr, 2048},
+    {"fmop", M_BITS, 0.0, k_fmop, 2048},
+    {"openv", M_BITS, 0.0, k_openv, 2048},
     {"delay", M_BITS, 0.0, k_delay, 2048},
     {"sampler", M_BITS, 0.0, k_sampler, 2048},
     {"resample", M_BITS, 0.0, k_resample, 2048},
