@@ -60,4 +60,24 @@ void udsp_conv_mac(const UDSP_CONV_IN *in, const float *spectra, size_t parts,
 void udsp_conv_out(float *acc, size_t block, float *out, size_t stride,
                    const float *table, float *scratch);
 
+/* --- the head, direct ------------------------------------------------
+ *
+ * A response's first frames convolved sample by sample, no latency: the
+ * head of a non-uniform scheme (the first taps direct, partitions of a
+ * small block next, of a big one after; each partition's block no
+ * longer than the frames ahead of it, so its latency is hidden). Each
+ * output sums its taps in the same order at any vector width (the lanes
+ * run across outputs), so it's the same bits on every build. */
+
+/* the head's taps reversed into hr (taps floats: the response's first
+ * taps frames at ir[i * stride], zeros past frames) */
+void udsp_conv_head(const float *ir, size_t frames, size_t stride, size_t taps,
+                    float *hr);
+
+/* out[i] += the sum over j < taps of h[j] x[i - j], for i < n: x points
+ * at the first of n new samples, the taps - 1 before it the history the
+ * caller keeps in front of them */
+void udsp_conv_direct(const float *hr, size_t taps, const float *x, float *out,
+                      size_t n);
+
 #endif

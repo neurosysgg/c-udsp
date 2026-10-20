@@ -395,7 +395,12 @@ are measured against:
   twice that a frame (49372 a block of half the frames): the
   multiply-adds are partitions times bins, whatever the block, so the
   latency halved doubles them -- what a zero-latency head of small
-  partitions ahead of large ones (non-uniform) avoids. The inverse FFT
+  partitions ahead of large ones (non-uniform) avoids. That head
+  (session 249, d12b): `conv_head64` (64 taps direct over 512 frames,
+  the lanes across outputs) 4257 gcc -O2, 1879 gcc -O3 -v3 -- 8.3 / 3.7
+  ns a frame, beside the 512 stage's 123 / 88; with the partitions of 64
+  between them a convolver costs ~10 % more than with the 512 stage
+  alone. The inverse FFT
   (`fft_real_inverse`, forward and back, 2048) 4989 / 4409: its
   untangling and copies are scalar yet.
 - The sampler's (session 224): `resample` (the cubic, 1024 stereo frames

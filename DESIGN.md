@@ -216,8 +216,17 @@ conv.c      UDSP_CONV_IN: uniformly partitioned convolution (overlap-save)
             spectra, a multiply-add of the two into an accumulator per
             output (the vector lanes across bins: the same bits as the
             scalar build), its inverse a block of output; one block of
-            latency (ctui-daw's convolver, d12; a zero-latency head of
-            smaller partitions later)
+            latency (ctui-daw's convolver, d12); the head direct
+            (udsp_conv_direct: a response's first taps sample by sample,
+            the lanes across outputs, so each sums its taps in one order
+            on every build) for a non-uniform scheme without latency
+            (d12b: 64 taps direct, partitions of 64, then of 512)
+stretch.c   a phase vocoder's time stretch, offline: Hann frames (~21 ms),
+            a quarter's hop, identity phase locking (each peak's phase
+            advanced by its own frequency, its bins rotated with it); its
+            angles its own series (no libm's atan2 / sin / cos), so the
+            same bits on every libc (ctui-daw's convolver's pitch: the
+            response stretched by the ratio, then read that much faster)
 sinc.c      UDSP_SINC: an offline resampler -- a Kaiser-windowed sinc
             (120 dB), polyphase over the rates' reduced ratio (rows
             interpolated past 4096 phases), each row normalised to pass

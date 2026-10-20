@@ -213,6 +213,40 @@ static void test_two_inputs(void) {
       "left and right through their own responses, summed (worst %g)", worst);
 }
 
+/* the head direct, in pieces of any size, against the sum: 1e-6, and
+ * the history the caller keeps carried across them */
+static void test_direct(void) {
+  enum { T = 64, N = 2000 };
+  static float h[100], hr[T], x[T - 1 + N], y[N];
+  for (int i = 0; i < 100; i++) {
+    h[i] = rnd();
+  }
+  for (int i = 0; i < T - 1 + N; i++) {
+    x[i] = i < T - 1 ? 0.0f : rnd();
+  }
+  udsp_conv_head(h, 100, 1, T, hr);
+  static const size_t CUT[] = {1, 7, 64, 333, 1};
+  size_t at = 0;
+  for (size_t c = 0; at < N; c = (c + 1) % 5) {
+    size_t k = CUT[c] < N - at ? CUT[c] : N - at;
+    memset(y + at, 0, k * sizeof(float));
+    udsp_conv_direct(hr, T, x + T - 1 + at, y + at, k);
+    at += k;
+  }
+  double worst = 0.0;
+  for (size_t t = 0; t < N; t++) {
+    double e = fabs(y[t] - direct(x + T - 1, 1, t, h, T));
+    worst = e > worst ? e : worst;
+  }
+  UDSP_TEST_ASSERT(worst < 1e-5, "the head's 64 taps direct (worst %g)", worst);
+  /* a head longer than the response: zeros past it */
+  float hr2[8];
+  udsp_conv_head(h, 3, 1, 8, hr2);
+  UDSP_TEST_ASSERT(hr2[7] == h[0] && hr2[5] == h[2] && hr2[4] == 0.0f &&
+                       hr2[0] == 0.0f,
+                   "a short response's head: reversed, zeros past it");
+}
+
 int main(void) {
   printf("conv_test\n");
   test_inverse_round_trip();
@@ -221,5 +255,6 @@ int main(void) {
   test_against_direct();
   test_delay();
   test_two_inputs();
+  test_direct();
   return udsp_test_summary();
 }

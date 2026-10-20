@@ -402,6 +402,13 @@ static void conv_bench_run(CONV_BENCH *c) {
 }
 static void k_conv512(void) { conv_bench_run(&g_conv512); }
 static void k_conv256(void) { conv_bench_run(&g_conv256); }
+/* the zero-latency head: 64 taps direct over a block of 512 */
+static float g_head[64];
+static void k_conv_head64(void) {
+  memset(g_out, 0, 512 * sizeof(float));
+  udsp_conv_direct(g_head, 64, g_in + 64, g_out, 512);
+  g_sink = g_out[3];
+}
 static void k_fft_real_inverse(void) {
   udsp_fft_real(g_in, g_re, g_im, N, g_table);
   udsp_fft_real_inverse(g_re, g_im, g_out, N, g_table);
@@ -545,6 +552,7 @@ static const KERNEL KERNELS[] = {
     {"fft_real_inverse", N, k_fft_real_inverse},
     {"conv512", 512, k_conv512},
     {"conv256", 256, k_conv256},
+    {"conv_head64", 512, k_conv_head64},
     {"xover3", N / 2, k_xover3},
     {"disperse64", N / 2, k_disperse64},
     {"udcomp", N / 2, k_udcomp},
@@ -643,6 +651,7 @@ int main(int argc, char **argv) {
   udsp_limiter_set(&g_lim, 48, 0.5f, 50.0f, 48000);
   conv_bench_init(&g_conv512, 512, g_big);
   conv_bench_init(&g_conv256, 256, g_big);
+  udsp_conv_head(g_big, 64, 1, 64, g_head);
   udsp_xover_reset(&g_xover);
   const float xo_hz[2] = {150.0f, 3000.0f};
   udsp_xover_set(&g_xover, 3, xo_hz, 48000);

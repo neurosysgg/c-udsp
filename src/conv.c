@@ -80,3 +80,30 @@ void udsp_conv_out(float *acc, size_t block, float *out, size_t stride,
     out[i * stride] = scratch[block + i];
   }
 }
+
+void udsp_conv_head(const float *ir, size_t frames, size_t stride, size_t taps,
+                    float *hr) {
+  for (size_t j = 0; j < taps; j++) {
+    hr[taps - 1 - j] = j < frames ? ir[j * stride] : 0.0f;
+  }
+}
+
+void udsp_conv_direct(const float *hr, size_t taps, const float *x, float *out,
+                      size_t n) {
+  const float *x0 = x - (taps - 1);
+  size_t i = 0;
+  for (; i + UDSP_W <= n; i += UDSP_W) {
+    UDSP_VF acc = udsp_vload(out + i);
+    for (size_t j = 0; j < taps; j++) {
+      acc = acc + udsp_vsplat(hr[j]) * udsp_vload(x0 + i + j);
+    }
+    udsp_vstore(out + i, acc);
+  }
+  for (; i < n; i++) {
+    float acc = out[i];
+    for (size_t j = 0; j < taps; j++) {
+      acc = acc + hr[j] * x0[i + j];
+    }
+    out[i] = acc;
+  }
+}
