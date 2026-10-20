@@ -34,6 +34,7 @@
 #include "adsr.h"
 #include "analyze.h"
 #include "delay.h"
+#include "disperse.h"
 #include "dyn.h"
 #include "eq.h"
 #include "fdn.h"
@@ -54,6 +55,7 @@
 #include "svf.h"
 #include "wtab.h"
 #include "yin.h"
+#include "xover.h"
 #include "zdf.h"
 
 #include <float.h>
@@ -580,6 +582,40 @@ static double k_eq(const float *x, size_t n) {
   return 0.0;
 }
 
+/* the signal as stereo through a 3-band crossover, retuned halfway;
+ * through 40 and a half stages of dispersion; keying an up / down
+ * compressor (peak, RMS): bits only */
+static double k_bands(const float *x, size_t n) {
+  static float b0[MAXN], b1[MAXN], b2[MAXN];
+  float *out[3] = {b0, b1, b2};
+  UDSP_XOVER xo;
+  udsp_xover_reset(&xo);
+  const float hz[2] = {150.0f, 3000.0f}, hz2[2] = {400.0f, 9000.0f};
+  udsp_xover_set(&xo, 3, hz, 48000);
+  udsp_xover_split(&xo, x, out, n / 4);
+  udsp_xover_set(&xo, 3, hz2, 48000);
+  float *half[3] = {b0 + n / 2, b1 + n / 2, b2 + n / 2};
+  udsp_xover_split(&xo, x + n / 2, half, n / 4);
+  hash_floats(b0, n);
+  hash_floats(b1, n);
+  hash_floats(b2, n);
+  static UDSP_DISPERSE d;
+  udsp_disperse_reset(&d);
+  udsp_disperse_set(&d, 40.5f, 900.0f, 3.0f, 2.0f, 48000);
+  memcpy(g_got, x, n * sizeof(float));
+  udsp_disperse_stereo(&d, g_got, n / 2);
+  hash_floats(g_got, n);
+  for (int rms = 0; rms < 2; rms++) {
+    UDSP_UDCOMP c;
+    udsp_udcomp_reset(&c);
+    udsp_udcomp_set(&c, -20.0f, 8.0f, -40.0f, 4.0f, 24.0f, -80.0f, 2.0f,
+                    60.0f, rms, 48000);
+    udsp_udcomp_gain(&c, x, g_got, n / 2);
+    hash_floats(g_got, n / 2);
+  }
+  return 0.0;
+}
+
 /* every wave's phase moved by the signal (a modulator's swing) */
 static double k_osc_pm(const float *x, size_t n) {
   for (int w = 0; w < UDSP_OSC_WAVES; w++) {
@@ -885,6 +921,7 @@ static const KERNEL KERNELS[] = {
     {"zdf", M_BITS, 0.0, k_zdf, 2048},
     {"eq", M_BITS, 0.0, k_eq, 2048},
     {"dyn", M_BITS, 0.0, k_dyn, 2048},
+    {"bands", M_BITS, 0.0, k_bands, 2048},
     {"fdn", M_BITS, 0.0, k_fdn, 2048},
     {"waveshape", M_BITS, 0.0, k_waveshape, 2048},
     {"log2f", M_ELEM, 4.0, k_log2f, 2048},

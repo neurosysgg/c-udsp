@@ -176,11 +176,63 @@ static void test_limiter(void) {
   UDSP_TEST_ASSERT(x[2 * 999] == 0.5f, "untouched before the lookahead");
 }
 
+/* the up / down compressor's settled gain on a steady key at level dB */
+static float ud_settled(UDSP_UDCOMP *c, float level_db) {
+  static float key[2 * RATE], gain[RATE];
+  const float a = powf(10.0f, level_db / 20.0f);
+  for (int i = 0; i < 2 * RATE; i++) {
+    key[i] = a;
+  }
+  udsp_udcomp_reset(c);
+  udsp_udcomp_gain(c, key, gain, RATE);
+  return 20.0f * log10f(gain[RATE - 1]);
+}
+
+static void test_udcomp(void) {
+  UDSP_UDCOMP c;
+  udsp_udcomp_set(&c, -20.0f, 4.0f, -40.0f, 4.0f, 12.0f, -80.0f, 5.0f, 50.0f,
+                  0, RATE);
+  const float above = ud_settled(&c, -10.0f), between = ud_settled(&c, -30.0f);
+  const float below = ud_settled(&c, -46.0f), capped = ud_settled(&c, -70.0f);
+  const float floor = ud_settled(&c, -90.0f);
+  UDSP_TEST_ASSERT(fabsf(above + 7.5f) < 0.01f && fabsf(between) < 1e-4f,
+                   "10 dB over at 4:1: -7.5 dB (%.3f); between: 0 (%.4f)",
+                   (double)above, (double)between);
+  UDSP_TEST_ASSERT(fabsf(below - 4.5f) < 0.01f && fabsf(capped - 12.0f) < 0.01f,
+                   "6 dB under at 4:1 up: +4.5 dB (%.3f); 30 under: the 12 dB "
+                   "cap (%.3f)",
+                   (double)below, (double)capped);
+  UDSP_TEST_ASSERT(fabsf(floor) < 1e-4f, "under the floor: no boost (%.4f)",
+                   (double)floor);
+  UDSP_TEST_ASSERT(fabsf(udsp_udcomp_curve(&c, -10.0f) + 17.5f) < 1e-4f &&
+                       fabsf(udsp_udcomp_curve(&c, -46.0f) + 41.5f) < 1e-4f,
+                   "the curve: -10 -> -17.5, -46 -> -41.5");
+  /* a boost comes in at the release's pace, a cut at the attack's: 5 ms
+   * vs 50 ms -- after 5 ms a cut is ~63 % there, a boost ~10 % */
+  static float key[2 * 240], gain[240];
+  udsp_udcomp_reset(&c);
+  for (int i = 0; i < 2 * 240; i++) {
+    key[i] = powf(10.0f, -10.0f / 20.0f);
+  }
+  udsp_udcomp_gain(&c, key, gain, 240);
+  const float cut = -20.0f * log10f(gain[239]) / 7.5f;
+  udsp_udcomp_reset(&c);
+  for (int i = 0; i < 2 * 240; i++) {
+    key[i] = powf(10.0f, -46.0f / 20.0f);
+  }
+  udsp_udcomp_gain(&c, key, gain, 240);
+  const float boost = 20.0f * log10f(gain[239]) / 4.5f;
+  UDSP_TEST_ASSERT(fabsf(cut - 0.632f) < 0.01f && fabsf(boost - 0.095f) < 0.01f,
+                   "5 ms in: the cut %.3f there, the boost %.3f", (double)cut,
+                   (double)boost);
+}
+
 int main(void) {
   printf("dyn_test\n");
   test_log_exp();
   test_comp();
   test_gate();
   test_limiter();
+  test_udcomp();
   return udsp_test_summary();
 }

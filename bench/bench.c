@@ -15,6 +15,7 @@
 #include "analyze.h"
 #include "ballistics.h"
 #include "delay.h"
+#include "disperse.h"
 #include "dyn.h"
 #include "eq.h"
 #include "fdn.h"
@@ -35,6 +36,7 @@
 #include "svf.h"
 #include "wtab.h"
 #include "yin.h"
+#include "xover.h"
 #include "zdf.h"
 
 #include <math.h>
@@ -366,6 +368,27 @@ static void k_eq48(void) {
   g_sink = g_out[3];
 }
 
+/* a 3-band crossover; 64 stages of dispersion; an up / down
+ * compressor's gain (RMS) */
+static UDSP_XOVER g_xover;
+static float g_band[3][N];
+static void k_xover3(void) {
+  float *out[3] = {g_band[0], g_band[1], g_band[2]};
+  udsp_xover_split(&g_xover, g_in, out, N / 2);
+  g_sink = g_band[1][3];
+}
+static UDSP_DISPERSE g_disp;
+static void k_disperse64(void) {
+  memcpy(g_out, g_in, N * sizeof(float));
+  udsp_disperse_stereo(&g_disp, g_out, N / 2);
+  g_sink = g_out[3];
+}
+static UDSP_UDCOMP g_udcomp;
+static void k_udcomp(void) {
+  udsp_udcomp_gain(&g_udcomp, g_in, g_out, N / 2);
+  g_sink = g_out[3];
+}
+
 /* a compressor's gain from a stereo key (peak), and a limiter over 1 ms
  * of lookahead */
 static UDSP_COMP g_comp;
@@ -479,6 +502,9 @@ static const KERNEL KERNELS[] = {
     {"eq", N, k_eq},
     {"eq48", N, k_eq48},
     {"comp", N / 2, k_comp},
+    {"xover3", N / 2, k_xover3},
+    {"disperse64", N / 2, k_disperse64},
+    {"udcomp", N / 2, k_udcomp},
     {"limiter", N / 2, k_limiter},
     {"fdn", N / 2, k_fdn},
     {"zdf", N, k_zdf},
@@ -572,6 +598,14 @@ int main(int argc, char **argv) {
   udsp_comp_set(&g_comp, -18.0f, 4.0f, 6.0f, 5.0f, 100.0f, 0, 48000);
   udsp_limiter_init(&g_lim, g_lim_mem, 48);
   udsp_limiter_set(&g_lim, 48, 0.5f, 50.0f, 48000);
+  udsp_xover_reset(&g_xover);
+  const float xo_hz[2] = {150.0f, 3000.0f};
+  udsp_xover_set(&g_xover, 3, xo_hz, 48000);
+  udsp_disperse_reset(&g_disp);
+  udsp_disperse_set(&g_disp, 64.0f, 900.0f, 2.0f, 2.0f, 48000);
+  udsp_udcomp_reset(&g_udcomp);
+  udsp_udcomp_set(&g_udcomp, -20.0f, 8.0f, -40.0f, 4.0f, 24.0f, -80.0f, 2.0f,
+                  60.0f, 1, 48000);
   udsp_eq_reset(&g_eq_bell);
   udsp_eq_set(&g_eq_bell, UDSP_EQ_BELL, 1200.0f, 1.0f, 6.0f, 48000);
   udsp_eq_reset(&g_eq_cut);

@@ -117,7 +117,7 @@ differ from `gcc-O2-scalar`:
 | lufs | elem | 1 | 0.46 | 0.46 |
 | softclip | elem | 4 | 2.85 | 2.85* |
 | mix_add, gain_stereo | elem | 1, 0.5 | 0.50 | 0.50* |
-| osc, osc_pm, fmop (session 239: + its tables), openv, svf, zdf, eq (+ its ramp), dyn (comp, gate, limiter), fdn, waveshape, adsr (+ lfo, note_inc), delay, sampler, resample, sinc (+ its table), vsinc (+ its table), ramp, r128, scope | bits | - | = | * |
+| osc, osc_pm, fmop (session 239: + its tables), openv, svf, zdf, eq (+ its ramp), dyn (comp, gate, limiter), bands (session 245: xover, disperse, udcomp), fdn, waveshape, adsr (+ lfo, note_inc), delay, sampler, resample, sinc (+ its table), vsinc (+ its table), ramp, r128, scope | bits | - | = | * |
 | log2f, exp2f (session 225: dyn.c's own) | elem | 4 | 2.58, 2.80 | 2.58, 2.80 |
 | yin (session 224: two tones vs YIN in double) | elem | 4 | 0.40 | 0.40 |
 
@@ -378,6 +378,14 @@ are measured against:
   `adsr` ~2100 everywhere (a stage switch a sample). ctui-daw's synth
   with 16 voices, FM and both oscillators runs at ~1 % of a core: voices
   in lanes can wait.
+- Bands and dispersion (ctui-daw's d10b-c, ns per 1024 stereo frames,
+  gcc -O2, the same machine): `xover3` (a 3-band Linkwitz-Riley split,
+  6 SVF sections and an allpass) 34466 (~0.16 % of a core at 48 kHz);
+  `udcomp` (an up / down compressor's gain, RMS) 20422, as the
+  compressor's; `disperse64` (64 allpass stages) 442095 one channel at a
+  time, 233921 with both in one loop (1.9x, the same bits): ~1.1 % of a
+  core, 128 stages twice that. The crossover gained little from the
+  same change (36125 -> 34466): its sections' state through arrays.
 - The sampler's (session 224): `resample` (the cubic, 1024 stereo frames
   at 7 semitones up from 44.1 kHz) 3549 gcc -O2, 3375 gcc -O2 -v3, 2606
   clang -O3 -v3 -- ~3.4 ns a frame, three times the linear voice for

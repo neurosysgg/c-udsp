@@ -120,6 +120,72 @@ float udsp_comp_curve(const UDSP_COMP *c, float in_db) {
   return in_db - reduction(c, in_db);
 }
 
+/* --- the up / down compressor ------------------------------------------ */
+
+void udsp_udcomp_reset(UDSP_UDCOMP *c) {
+  c->db = 0.0f;
+  c->ms = 0.0f;
+}
+
+static float slope_of(float ratio) {
+  return ratio >= 1e9f ? 0.0f : 1.0f / (ratio < 1.0f ? 1.0f : ratio);
+}
+
+void udsp_udcomp_set(UDSP_UDCOMP *c, float above_db, float above_ratio,
+                     float below_db, float below_ratio, float up_max_db,
+                     float floor_db, float attack_ms, float release_ms,
+                     int rms, unsigned rate) {
+  c->a_thr = above_db;
+  c->b_thr = below_db < above_db ? below_db : above_db;
+  c->a_slope = slope_of(above_ratio) - 1.0f;
+  c->b_slope = 1.0f - slope_of(below_ratio);
+  c->up_max = up_max_db < 0.0f ? 0.0f : up_max_db;
+  c->floor = floor_db;
+  c->att = pole(attack_ms, rate);
+  c->rel = pole(release_ms, rate);
+  c->ms_coef = pole(10.0f, rate);
+  c->rms = rms;
+}
+
+/* the gain (dB) the curve asks for at level x */
+static inline float ud_gain(const UDSP_UDCOMP *c, float x) {
+  if (x > c->a_thr) {
+    return c->a_slope * (x - c->a_thr);
+  }
+  if (x < c->b_thr && x > c->floor) {
+    const float up = c->b_slope * (c->b_thr - x);
+    return up < c->up_max ? up : c->up_max;
+  }
+  return 0.0f;
+}
+
+void udsp_udcomp_gain(UDSP_UDCOMP *c, const float *key, float *gain,
+                      size_t frames) {
+  float db = c->db, ms = c->ms;
+  const float att = c->att, rel = c->rel, mc = c->ms_coef;
+  for (size_t i = 0; i < frames; i++) {
+    float x;
+    if (c->rms) {
+      const float l = key[2 * i], r = key[2 * i + 1];
+      const float sq = l * l > r * r ? l * l : r * r;
+      ms = sq + mc * (ms - sq);
+      x = 0.5f * UDSP_DB_PER_LOG2 * udsp_log2f(ms < 1e-30f ? 1e-30f : ms);
+    } else {
+      x = peak_db(key + 2 * i);
+    }
+    const float want = ud_gain(c, x);
+    const float a = want < db ? att : rel;
+    db = want + a * (db - want);
+    gain[i] = udsp_gain_from_db(db);
+  }
+  c->db = db;
+  c->ms = ms;
+}
+
+float udsp_udcomp_curve(const UDSP_UDCOMP *c, float in_db) {
+  return in_db + ud_gain(c, in_db);
+}
+
 /* --- the gate ---------------------------------------------------------- */
 
 void udsp_gate_reset(UDSP_GATE *g) {

@@ -190,10 +190,21 @@ eq.c        UDSP_EQ_BAND: a parametric EQ's band, stereo -- Simper's SVF
 dyn.c       a float log2 / exp2 of its own (no libm); UDSP_COMP (a soft
             knee, peak or RMS, attack and release in dB), UDSP_GATE
             (hysteresis, hold, a floor) -- both a gain from a key, the
-            caller applying it (a sidechain) -- and UDSP_LIMITER, a
+            caller applying it (a sidechain) -- UDSP_UDCOMP, a band of
+            Multiband Dynamics (down above one threshold, up below another,
+            the boost capped, none under a floor) -- and UDSP_LIMITER, a
             brickwall over a lookahead (the needed gain held at its
             window's minimum, released, averaged over the window: no
             sample past the ceiling)
+xover.c     UDSP_XOVER: a Linkwitz-Riley crossover, up to five bands at
+            24 dB an octave (two Butterworth sections of Simper's SVF each
+            way), the lower bands through the higher splits' allpasses so
+            the bands sum flat in level (Multiband Dynamics, OTT; a
+            band-split rack later)
+disperse.c  UDSP_DISPERSE: up to 128 second-order allpasses in series
+            (Simper's SVF as x - 2k band), the amount fractional (the last
+            stage faded in), a spread fanning their frequencies by a van
+            der Corput sequence so more stages never move the ones there
 line.c      UDSP_LINE: a mono delay line a power of two long, read at a
             whole or fractional delay (Catmull-Rom between four)
 fdn.c       UDSP_FDN: a reverb -- eight lines through a Hadamard matrix,

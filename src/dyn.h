@@ -60,6 +60,42 @@ void udsp_comp_gain(UDSP_COMP *c, const float *key, float *gain,
 /* the static curve: the level out (dB) for a steady level in (dB) */
 float udsp_comp_curve(const UDSP_COMP *c, float in_db);
 
+/* --- the up / down compressor ------------------------------------------
+ * A band of Ableton's Multiband Dynamics (OTT's): above one threshold
+ * the level is pulled down by its ratio, below another pulled up toward
+ * it by its ratio (upward compression), in between left alone. The gain
+ * (dB, either sign) is smoothed as the compressor's: attack while it
+ * falls, release while it rises -- so a boost comes in at the release's
+ * pace once the level drops. The boost stops at `up_max` dB, and a key
+ * under `floor` dB (silence, a tail's last bit) gets none: upward
+ * compression would otherwise lift the noise floor without end. */
+
+typedef struct {
+  float a_thr, a_slope; /* above: 1 / ratio - 1 */
+  float b_thr, b_slope; /* below: 1 - 1 / ratio */
+  float up_max, floor;
+  float att, rel, ms_coef;
+  int rms;
+  float db; /* the smoothed gain, dB */
+  float ms;
+} UDSP_UDCOMP;
+
+void udsp_udcomp_reset(UDSP_UDCOMP *c);
+
+/* thresholds in dB (below <= above), ratios >= 1 (1e9 or more:
+ * infinity), times in ms (> 0), up_max >= 0 and floor in dB */
+void udsp_udcomp_set(UDSP_UDCOMP *c, float above_db, float above_ratio,
+                     float below_db, float below_ratio, float up_max_db,
+                     float floor_db, float attack_ms, float release_ms,
+                     int rms, unsigned rate);
+
+/* the gain (linear) for each of frames frames of key into gain */
+void udsp_udcomp_gain(UDSP_UDCOMP *c, const float *key, float *gain,
+                      size_t frames);
+
+/* the static curve: the level out (dB) for a steady level in (dB) */
+float udsp_udcomp_curve(const UDSP_UDCOMP *c, float in_db);
+
 /* --- the gate ----------------------------------------------------------
  * Opens when the key's peak passes the threshold, closes once it falls
  * `ret` dB under it (hysteresis: no chatter on a level that hovers) and
