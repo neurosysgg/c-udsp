@@ -15,6 +15,7 @@
 #include "analyze.h"
 #include "ballistics.h"
 #include "delay.h"
+#include "conv.h"
 #include "disperse.h"
 #include "dyn.h"
 #include "eq.h"
@@ -368,6 +369,45 @@ static void k_eq48(void) {
   g_sink = g_out[3];
 }
 
+/* a 4 s response at 48 kHz in partitions of 512 (375) and 256 (750):
+ * a block's push, multiply-adds and inverse -- per frame, what one
+ * channel of a convolution reverb costs */
+#define CONV_FRAMES 192000
+typedef struct {
+  size_t b, parts;
+  float *spectra, *line, *acc, *frame, *scratch, *table;
+  UDSP_CONV_IN in;
+} CONV_BENCH;
+static CONV_BENCH g_conv512, g_conv256;
+static void conv_bench_init(CONV_BENCH *c, size_t b, const float *ir) {
+  const size_t s = UDSP_CONV_SPECTRUM(b);
+  c->b = b;
+  c->parts = udsp_conv_parts(CONV_FRAMES, b);
+  c->spectra = aligned_alloc(64, (c->parts * s * sizeof(float) + 63) / 64 * 64);
+  c->line = aligned_alloc(64, (c->parts * s * sizeof(float) + 63) / 64 * 64);
+  c->acc = aligned_alloc(64, (s * sizeof(float) + 63) / 64 * 64);
+  c->frame = aligned_alloc(64, 2 * b * sizeof(float));
+  c->scratch = aligned_alloc(64, 2 * b * sizeof(float));
+  c->table = aligned_alloc(64, UDSP_FFT_TABLE_FLOATS(2 * b) * sizeof(float));
+  udsp_fft_table(c->table, 2 * b);
+  udsp_conv_ir(ir, CONV_FRAMES, 1, b, c->spectra, c->table, c->scratch);
+  udsp_conv_in_init(&c->in, b, c->parts, c->line, c->frame);
+}
+static void conv_bench_run(CONV_BENCH *c) {
+  udsp_conv_in_push(&c->in, g_in, 1, c->table);
+  memset(c->acc, 0, UDSP_CONV_SPECTRUM(c->b) * sizeof(float));
+  udsp_conv_mac(&c->in, c->spectra, c->parts, c->acc);
+  udsp_conv_out(c->acc, c->b, g_out, 1, c->table, c->scratch);
+  g_sink = g_out[3];
+}
+static void k_conv512(void) { conv_bench_run(&g_conv512); }
+static void k_conv256(void) { conv_bench_run(&g_conv256); }
+static void k_fft_real_inverse(void) {
+  udsp_fft_real(g_in, g_re, g_im, N, g_table);
+  udsp_fft_real_inverse(g_re, g_im, g_out, N, g_table);
+  g_sink = g_out[7];
+}
+
 /* a 3-band crossover; 64 stages of dispersion; an up / down
  * compressor's gain (RMS) */
 static UDSP_XOVER g_xover;
@@ -502,6 +542,9 @@ static const KERNEL KERNELS[] = {
     {"eq", N, k_eq},
     {"eq48", N, k_eq48},
     {"comp", N / 2, k_comp},
+    {"fft_real_inverse", N, k_fft_real_inverse},
+    {"conv512", 512, k_conv512},
+    {"conv256", 256, k_conv256},
     {"xover3", N / 2, k_xover3},
     {"disperse64", N / 2, k_disperse64},
     {"udcomp", N / 2, k_udcomp},
@@ -598,6 +641,8 @@ int main(int argc, char **argv) {
   udsp_comp_set(&g_comp, -18.0f, 4.0f, 6.0f, 5.0f, 100.0f, 0, 48000);
   udsp_limiter_init(&g_lim, g_lim_mem, 48);
   udsp_limiter_set(&g_lim, 48, 0.5f, 50.0f, 48000);
+  conv_bench_init(&g_conv512, 512, g_big);
+  conv_bench_init(&g_conv256, 256, g_big);
   udsp_xover_reset(&g_xover);
   const float xo_hz[2] = {150.0f, 3000.0f};
   udsp_xover_set(&g_xover, 3, xo_hz, 48000);

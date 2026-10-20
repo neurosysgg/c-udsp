@@ -15,9 +15,10 @@ contract.
 ## Pipeline layering: transform → domain-specific analysis → stateful history
 
 ```
-fft.c            generic radix-2 FFT + Hann window. Knows nothing about
-                 audio (no Hz, no dB, no channels) -- a pure numerical
-                 transform, reusable for anything that needs one.
+fft.c            generic radix-2 FFT + Hann window (and the real FFT's
+                 inverse, conv.c's). Knows nothing about audio (no Hz, no
+                 dB, no channels) -- a pure numerical transform, reusable
+                 for anything that needs one.
    │
    ▼
 spectrum.c       udsp_spectrum_bars(): windowed FFT -> n log-spaced dBFS
@@ -210,6 +211,13 @@ line.c      UDSP_LINE: a mono delay line a power of two long, read at a
 fdn.c       UDSP_FDN: a reverb -- eight lines through a Hadamard matrix,
             each damped and its gain set from the decay, modulated reads,
             a predelay and four diffusing allpasses ahead
+conv.c      UDSP_CONV_IN: uniformly partitioned convolution (overlap-save)
+            -- a response's partitions' spectra, an input's delay line of
+            spectra, a multiply-add of the two into an accumulator per
+            output (the vector lanes across bins: the same bits as the
+            scalar build), its inverse a block of output; one block of
+            latency (ctui-daw's convolver, d12; a zero-latency head of
+            smaller partitions later)
 sinc.c      UDSP_SINC: an offline resampler -- a Kaiser-windowed sinc
             (120 dB), polyphase over the rates' reduced ratio (rows
             interpolated past 4096 phases), each row normalised to pass

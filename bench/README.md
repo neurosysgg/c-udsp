@@ -109,6 +109,7 @@ differ from `gcc-O2-scalar`:
 | fft_table / fft_real, 2048 | max | 4 | 1.52 / 1.31 | 1.68* / 1.17* |
 | fft_table / fft_real, 8192 | max | 4 | 1.70 / 2.69 | 1.76* / 2.71* |
 | fft_real_windowed, 2048 | max | 4 | 1.54 | 1.66* |
+| fft_real_inverse, 2048 (session 248: against the exact inverse of the same bins) | max | 8 | 5.33 | 4.72* |
 | spectrum_power, 2048 / 8192 | max | 4 / 8 | 1.46 / 4.81 | 1.85* / 4.81* |
 | power, magnitude | elem | 1.5 | 1.12, 1.05 | 1.00*, 0.99* |
 | rms, 2048 / 1M | elem | 1 | 0.45-0.61* / 0.36 | 0.57* / 0.35 |
@@ -117,7 +118,7 @@ differ from `gcc-O2-scalar`:
 | lufs | elem | 1 | 0.46 | 0.46 |
 | softclip | elem | 4 | 2.85 | 2.85* |
 | mix_add, gain_stereo | elem | 1, 0.5 | 0.50 | 0.50* |
-| osc, osc_pm, fmop (session 239: + its tables), openv, svf, zdf, eq (+ its ramp), dyn (comp, gate, limiter), bands (session 245: xover, disperse, udcomp), fdn, waveshape, adsr (+ lfo, note_inc), delay, sampler, resample, sinc (+ its table), vsinc (+ its table), ramp, r128, scope | bits | - | = | * |
+| osc, osc_pm, fmop (session 239: + its tables), openv, svf, zdf, eq (+ its ramp), dyn (comp, gate, limiter), bands (session 245: xover, disperse, udcomp), conv (session 248), fdn, waveshape, adsr (+ lfo, note_inc), delay, sampler, resample, sinc (+ its table), vsinc (+ its table), ramp, r128, scope | bits | - | = | * |
 | log2f, exp2f (session 225: dyn.c's own) | elem | 4 | 2.58, 2.80 | 2.58, 2.80 |
 | yin (session 224: two tones vs YIN in double) | elem | 4 | 0.40 | 0.40 |
 
@@ -386,6 +387,17 @@ are measured against:
   time, 233921 with both in one loop (1.9x, the same bits): ~1.1 % of a
   core, 128 stages twice that. The crossover gained little from the
   same change (36125 -> 34466): its sections' state through arrays.
+- Convolution (ctui-daw's d12, session 248, ns per block -- a push, the
+  multiply-adds, the inverse -- of a 4 s response at 48 kHz, one input
+  into one output): `conv512` (375 partitions of 512) 67048 gcc -O2,
+  43078 gcc -O3 -v3, 48701 clang -O3 -v3 -- ~84 ns a frame at AVX2, 0.4 %
+  of a core; true stereo's four ~1.6 %. `conv256` (750 of 256) costs
+  twice that a frame (49372 a block of half the frames): the
+  multiply-adds are partitions times bins, whatever the block, so the
+  latency halved doubles them -- what a zero-latency head of small
+  partitions ahead of large ones (non-uniform) avoids. The inverse FFT
+  (`fft_real_inverse`, forward and back, 2048) 4989 / 4409: its
+  untangling and copies are scalar yet.
 - The sampler's (session 224): `resample` (the cubic, 1024 stereo frames
   at 7 semitones up from 44.1 kHz) 3549 gcc -O2, 3375 gcc -O2 -v3, 2606
   clang -O3 -v3 -- ~3.4 ns a frame, three times the linear voice for

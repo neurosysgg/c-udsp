@@ -66,6 +66,14 @@ void udsp_fft_real(const float *in, float *re, float *im, size_t n,
 void udsp_fft_real_windowed(const float *in, const float *w, float *re,
                             float *im, size_t n, const float *table);
 
+/* udsp_fft_real()'s inverse: bins 0..n/2 (re/im, n/2 + 1 each; im[0] and
+ * im[n/2] read as 0) back to n real samples in out, unnormalized -- n
+ * times the signal, so a forward then an inverse gives n * in (a caller
+ * folds the 1/n into what it multiplies the spectrum by). re/im are used
+ * as scratch and left changed. table is filled for n; n >= 4. */
+void udsp_fft_real_inverse(float *re, float *im, float *out, size_t n,
+                           const float *table);
+
 /* out[i] = re[i]^2 + im[i]^2: the squared magnitude, which is all a peak
  * search, a band energy or a dB value needs (10*log10 of it), without a
  * sqrt per bin. out may be re or im. */

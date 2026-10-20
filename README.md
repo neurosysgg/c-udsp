@@ -46,8 +46,11 @@ There's no single umbrella header — include only what you need:
 ```c
 #include "fft.h"        /* udsp_fft_forward, udsp_window_hann, udsp_fft_magnitude;
                            the table-driven ones: udsp_fft_table, udsp_fft_real,
-                           udsp_fft_forward_table, udsp_fft_power,
-                           udsp_window_hann_table, udsp_window_apply */
+                           udsp_fft_real_inverse, udsp_fft_forward_table,
+                           udsp_fft_power, udsp_window_hann_table,
+                           udsp_window_apply */
+#include "conv.h"        /* UDSP_CONV_IN + udsp_conv_ir/in_push/mac/out --
+                           uniformly partitioned convolution (an IR reverb's) */
 #include "analyze.h"     /* udsp_analyze_rms/peak/minmax/sum/dbfs, udsp_mono_downmix */
 #include "spectrum.h"    /* udsp_spectrum_bars (= udsp_spectrum_magnitude +
                            udsp_spectrum_bin) -- log-spaced dBFS bars from an

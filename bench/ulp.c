@@ -38,6 +38,7 @@
 #include "dyn.h"
 #include "eq.h"
 #include "fdn.h"
+#include "conv.h"
 #include "fft.h"
 #include "gain.h"
 #include "lfo.h"
@@ -293,6 +294,50 @@ static double k_fft_real_windowed(const float *x, size_t n) {
   }
   dft_d(g_xd, NULL, n, n / 2 + 1, g_ref, g_ref2);
   return fft_check(n / 2 + 1);
+}
+
+/* the inverse of udsp_fft_real()'s bins of x, against the exact inverse
+ * of those same bins (the forward's own error out of it), judged by the
+ * largest |sample| */
+static double k_fft_real_inverse(const float *x, size_t n) {
+  static float re[MAXN / 2 + 1], im[MAXN / 2 + 1];
+  udsp_fft_table(g_table, n);
+  udsp_fft_real(x, re, im, n, g_table);
+  const size_t m = n / 2;
+  for (size_t j = 0; j < n; j++) {
+    double v = re[0] + (j & 1 ? -1.0 : 1.0) * re[m];
+    for (size_t k = 1; k < m; k++) {
+      double a = 2.0 * M_PI * (double)((j * k) & (n - 1)) / (double)n;
+      v += 2.0 * ((double)re[k] * cos(a) - (double)im[k] * sin(a));
+    }
+    g_ref[j] = v;
+  }
+  udsp_fft_real_inverse(re, im, g_got, n, g_table);
+  hash_floats(g_got, n);
+  return worst(M_MAX, g_got, g_ref, NULL, max_abs(g_ref, n), n);
+}
+
+/* x through a 4-partition response (x's own reverse, decaying) in blocks
+ * of 64 */
+static double k_conv(const float *x, size_t n) {
+  enum { B = 64, P = 4, S = UDSP_CONV_SPECTRUM(B) };
+  static float h[P * B], spectra[P * S], line[P * S], acc[S], frame[2 * B],
+      scratch[2 * B];
+  for (size_t i = 0; i < P * B; i++) {
+    h[i] = x[n - 1 - i] * (float)exp(-(double)i / 64.0);
+  }
+  udsp_fft_table(g_table, 2 * B);
+  udsp_conv_ir(h, P * B, 1, B, spectra, g_table, scratch);
+  UDSP_CONV_IN in;
+  udsp_conv_in_init(&in, B, P, line, frame);
+  for (size_t at = 0; at + B <= n; at += B) {
+    udsp_conv_in_push(&in, x + at, 1, g_table);
+    memset(acc, 0, sizeof acc);
+    udsp_conv_mac(&in, spectra, P, acc);
+    udsp_conv_out(acc, B, g_got + at, 1, g_table, scratch);
+  }
+  hash_floats(g_got, n);
+  return 0.0;
 }
 
 /* the input as one transform's re and im halves */
@@ -902,6 +947,8 @@ static const KERNEL KERNELS[] = {
     {"fft_real", M_MAX, 4.0, k_fft_real, 2048},
     {"fft_real8k", M_MAX, 4.0, k_fft_real, 8192},
     {"fft_real_windowed", M_MAX, 4.0, k_fft_real_windowed, 2048},
+    {"fft_real_inverse", M_MAX, 8.0, k_fft_real_inverse, 2048},
+    {"conv", M_BITS, 0.0, k_conv, 2048},
     {"spectrum_power", M_MAX, 4.0, k_spectrum_power, 2048},
     {"spectrum_power8k", M_MAX, 8.0, k_spectrum_power, 8192},
     {"power", M_ELEM, 1.5, k_power, 2048},

@@ -393,6 +393,52 @@ void udsp_fft_real_windowed(const float *in, const float *w, float *re,
   fft_real(in, w, re, im, n, table);
 }
 
+/* bit-reversed order, then the butterflies: an m-point transform with
+ * twiddles from a table filled for n >= m */
+static void complex_table(float *re, float *im, size_t m, const float *table,
+                          size_t n) {
+  int bits = log2n(m);
+  for (size_t i = 1; i < m; i++) {
+    size_t j = bits <= 16 ? bitrev(i, bits) : 0;
+    if (bits > 16) {
+      for (int b = 0; b < bits; b++) {
+        j |= ((i >> b) & 1) << (bits - 1 - b);
+      }
+    }
+    if (i < j) {
+      swapf(&re[i], &re[j]);
+      swapf(&im[i], &im[j]);
+    }
+  }
+  butterflies(re, im, m, table, table + n, 1);
+}
+
+void udsp_fft_real_inverse(float *re, float *im, float *out, size_t n,
+                           const float *table) {
+  size_t m = n / 2;
+  /* fft_real()'s untangling undone, both halves doubled (n, not m, times
+   * the signal at the end): with X the spectrum, S = X[k] + conj(X[m-k])
+   * is 2E, D = X[k] - conj(X[m-k]) is 2 W^k O, and z = even + i odd has
+   *   Z[k]   = S + i T,        T = conj(W^k) D
+   *   Z[m-k] = conj(S) + i conj(T) */
+  const float *wr = table + m, *wi = table + n + m;
+  float x0 = re[0], xm = re[m];
+  re[0] = x0 + xm, im[0] = x0 - xm;
+  for (size_t k = 1; k <= m / 2; k++) {
+    float ar = re[k], ai = im[k], br = re[m - k], bi = im[m - k];
+    float sr = ar + br, si = ai - bi, dr = ar - br, di = ai + bi;
+    float tr = wr[k] * dr + wi[k] * di, ti = wr[k] * di - wi[k] * dr;
+    re[k] = sr - ti, im[k] = si + tr;
+    re[m - k] = sr + ti, im[m - k] = tr - si;
+  }
+  /* the inverse transform is the forward one with re and im swapped */
+  complex_table(im, re, m, table, n);
+  for (size_t k = 0; k < m; k++) {
+    out[2 * k] = re[k];
+    out[2 * k + 1] = im[k];
+  }
+}
+
 void udsp_fft_power(const float *re, const float *im, size_t n, float *out) {
   size_t i = 0;
   for (; i + UDSP_W <= n; i += UDSP_W) {
