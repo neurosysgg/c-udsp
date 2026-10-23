@@ -50,4 +50,13 @@ static inline float udsp_line_read(const UDSP_LINE *l, float d) {
                       udsp_line_tap(l, i + 1), udsp_line_tap(l, i + 2), f);
 }
 
+/* n reads ahead, none pushed yet: out[j] is what udsp_line_read(l, d[j])
+ * gives once j more frames are pushed -- a modulated tap's block at a
+ * time, its pushes after (udsp_line_write). Every d[j] >= n + 1: nothing
+ * read is among those n frames */
+void udsp_line_reads(const UDSP_LINE *l, const float *d, float *out, size_t n);
+
+/* n frames pushed, in order */
+void udsp_line_write(UDSP_LINE *l, const float *x, size_t n);
+
 #endif

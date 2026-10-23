@@ -27,8 +27,11 @@ tests/dither_test.c: comparing object representation of type 'float' which does 
 tests/eq_test.c: comparing object representation of type 'float' which does not have a unique object representation; consider comparing the values manually [bugprone-suspicious-memory-comparison,cert-exp42-c,cert-flp37-c]
 tests/eq_test.c: comparing object representation of type 'float' which does not have a unique object representation; consider comparing the values manually [bugprone-suspicious-memory-comparison,cert-exp42-c,cert-flp37-c]
 tests/eq_test.c: comparing object representation of type 'float' which does not have a unique object representation; consider comparing the values manually [bugprone-suspicious-memory-comparison,cert-exp42-c,cert-flp37-c]
+tests/fdn_test.c: comparing object representation of type 'float' which does not have a unique object representation; consider comparing the values manually [bugprone-suspicious-memory-comparison,cert-exp42-c,cert-flp37-c]
+tests/fdn_test.c: comparing object representation of type 'float' which does not have a unique object representation; consider comparing the values manually [bugprone-suspicious-memory-comparison,cert-exp42-c,cert-flp37-c]
 tests/fft_test.c: comparing object representation of type 'float' which does not have a unique object representation; consider comparing the values manually [bugprone-suspicious-memory-comparison,cert-exp42-c,cert-flp37-c]
 tests/openv_test.c: comparing object representation of type 'float' which does not have a unique object representation; consider comparing the values manually [bugprone-suspicious-memory-comparison,cert-exp42-c,cert-flp37-c]
+tests/osc_test.c: comparing object representation of type 'float' which does not have a unique object representation; consider comparing the values manually [bugprone-suspicious-memory-comparison,cert-exp42-c,cert-flp37-c]
 tests/osc_test.c: comparing object representation of type 'float' which does not have a unique object representation; consider comparing the values manually [bugprone-suspicious-memory-comparison,cert-exp42-c,cert-flp37-c]
 tests/osc_test.c: comparing object representation of type 'float' which does not have a unique object representation; consider comparing the values manually [bugprone-suspicious-memory-comparison,cert-exp42-c,cert-flp37-c]
 tests/osc_test.c: comparing object representation of type 'float' which does not have a unique object representation; consider comparing the values manually [bugprone-suspicious-memory-comparison,cert-exp42-c,cert-flp37-c]
@@ -38,6 +41,8 @@ tests/sinc_test.c: comparing object representation of type 'float' which does no
 tests/sinc_test.c: comparing object representation of type 'float' which does not have a unique object representation; consider comparing the values manually [bugprone-suspicious-memory-comparison,cert-exp42-c,cert-flp37-c]
 tests/sinc_test.c: comparing object representation of type 'float' which does not have a unique object representation; consider comparing the values manually [bugprone-suspicious-memory-comparison,cert-exp42-c,cert-flp37-c]
 tests/wtab_test.c: comparing object representation of type 'float' which does not have a unique object representation; consider comparing the values manually [bugprone-suspicious-memory-comparison,cert-exp42-c,cert-flp37-c]
+tests/xover_test.c: comparing object representation of type 'float' which does not have a unique object representation; consider comparing the values manually [bugprone-suspicious-memory-comparison,cert-exp42-c,cert-flp37-c]
+tests/xover_test.c: comparing object representation of type 'float' which does not have a unique object representation; consider comparing the values manually [bugprone-suspicious-memory-comparison,cert-exp42-c,cert-flp37-c]
 tests/xover_test.c: comparing object representation of type 'float' which does not have a unique object representation; consider comparing the values manually [bugprone-suspicious-memory-comparison,cert-exp42-c,cert-flp37-c]
 
 # the reference loudness is only measured on signals with energy (cppcheck

@@ -167,6 +167,37 @@ static void test_pm(void) {
                    "the sine at a quarter turn and at zero");
 }
 
+/* the array form: the scalar sine's answers, any length, every fold */
+static void test_sines(void) {
+  float turns[203], got[203];
+  for (int i = 0; i < 203; i++) {
+    turns[i] = (float)i / 203.0f;
+  }
+  turns[0] = 0.25f; /* the folds' edges */
+  turns[1] = 0.5f;
+  turns[2] = 0.75f;
+  turns[3] = 0.99999994f;
+  float worst = 0.0f;
+  int same = 1;
+  for (size_t n = 0; n <= 203; n += 29) {
+    udsp_osc_sines(turns, got, n);
+    for (size_t i = 0; i < n; i++) {
+      const float want = udsp_osc_sine(turns[i]);
+      const float d = fabsf(got[i] - want);
+      worst = d > worst ? d : worst;
+      same &= memcmp(&got[i], &want, sizeof want) == 0;
+    }
+  }
+#if defined(__clang__) && defined(__FMA__)
+  /* clang fuses a * b + c by default (DESIGN.md "Bits") */
+  UDSP_TEST_ASSERT(worst < 1e-6f, "the scalar sine's answers (%g, fused)",
+                   (double)worst);
+#else
+  (void)worst;
+  UDSP_TEST_ASSERT(same, "the scalar sine's answers, bit for bit");
+#endif
+}
+
 static void test_names(void) {
   int ok = 1;
   for (int w = 0; w < UDSP_OSC_WAVES; w++) {
@@ -188,6 +219,7 @@ int main(void) {
   test_pm();
   test_phase_advances();
   test_noise();
+  test_sines();
   test_names();
   return udsp_test_summary();
 }

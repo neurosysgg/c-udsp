@@ -77,6 +77,9 @@ static inline float udsp_osc_sine(float turns) {
   return -u * p;
 }
 
+/* udsp_osc_sine() of n turns, each in [0, 1) */
+void udsp_osc_sines(const float *turns, float *out, size_t n);
+
 /* "sine", "square", ... <-> the wave; UDSP_OSC_WAVES for an unknown name */
 UDSP_OSC_WAVE udsp_osc_wave_by_name(const char *name);
 const char *udsp_osc_wave_name(UDSP_OSC_WAVE w);

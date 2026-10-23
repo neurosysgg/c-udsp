@@ -27,6 +27,54 @@ static void test_line(void) {
                    "whole delays exact; a ramp read between its frames");
 }
 
+/* reads a run ahead, then the run pushed: udsp_line_read's answers
+ * frame by frame, its pushes between -- across the ring's wrap, any
+ * length, delays down to n + 1 */
+static void test_line_reads(void) {
+  float buf[128], ref_buf[128], d[40], got[40], x[40];
+  float worst = 0.0f;
+  int same = 1, ring = 1;
+  uint32_t seed = 12345;
+  for (int round = 0; round < 60; round++) {
+    UDSP_LINE l, r;
+    udsp_line_init(&l, buf, 128);
+    udsp_line_init(&r, ref_buf, 128);
+    const int pre = 90 + round * 7; /* where the run starts in the ring */
+    for (int i = 0; i < pre; i++) {
+      seed = seed * 1664525u + 1013904223u;
+      const float v = (float)(seed >> 8) / 16777216.0f - 0.5f;
+      udsp_line_push(&l, v);
+      udsp_line_push(&r, v);
+    }
+    const size_t n = (size_t)(round % 40) + 1;
+    for (size_t j = 0; j < n; j++) {
+      seed = seed * 1664525u + 1013904223u;
+      d[j] = (float)(n + 1) + (float)(seed >> 8) / 16777216.0f * 80.0f;
+      x[j] = (float)j - 3.5f;
+    }
+    d[0] = (float)(n + 1); /* the nearest allowed, whole */
+    udsp_line_reads(&l, d, got, n);
+    udsp_line_write(&l, x, n);
+    for (size_t j = 0; j < n; j++) {
+      const float want = udsp_line_read(&r, d[j]);
+      udsp_line_push(&r, x[j]);
+      const float e = fabsf(got[j] - want);
+      worst = e > worst ? e : worst;
+      same &= memcmp(&got[j], &want, sizeof want) == 0;
+    }
+    ring &= l.w == r.w && memcmp(buf, ref_buf, sizeof buf) == 0;
+  }
+  UDSP_TEST_ASSERT(ring, "the run's pushes: the same ring, the same place");
+#if defined(__clang__) && defined(__FMA__)
+  /* clang fuses a * b + c by default (DESIGN.md "Bits") */
+  UDSP_TEST_ASSERT(worst < 1e-6f, "the reads a frame at a time (%g, fused)",
+                   (double)worst);
+#else
+  (void)worst;
+  UDSP_TEST_ASSERT(same, "the reads a frame at a time, bit for bit");
+#endif
+}
+
 static float *fdn_new(UDSP_FDN *f) {
   float *mem = calloc(udsp_fdn_floats(RATE), sizeof(float));
   udsp_fdn_init(f, mem, RATE);
@@ -161,6 +209,7 @@ static void test_idle(void) {
 int main(void) {
   printf("fdn_test\n");
   test_line();
+  test_line_reads();
   test_decay();
   test_stable_and_blocks();
   test_predelay();

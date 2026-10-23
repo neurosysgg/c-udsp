@@ -50,10 +50,14 @@ static inline void udsp_v4store(float *p, UDSP_V4 v) {
 }
 /* lanes picked from a (0-3) and b (4-7): __builtin_shufflevector (clang,
  * gcc 12+), else gcc's own __builtin_shuffle */
+typedef int UDSP_V4I __attribute__((vector_size(16)));
+/* udsp_vsel's four-lane form */
+static inline UDSP_V4 udsp_v4sel(UDSP_V4I m, UDSP_V4 a, UDSP_V4 b) {
+  return (UDSP_V4)((m & (UDSP_V4I)a) | (~m & (UDSP_V4I)b));
+}
 #if defined(__clang__) || __GNUC__ >= 12
 #define UDSP_SHUF4(a, b, i, j, k, l) __builtin_shufflevector(a, b, i, j, k, l)
 #else
-typedef int UDSP_V4I __attribute__((vector_size(16)));
 #define UDSP_SHUF4(a, b, i, j, k, l)                                           \
   __builtin_shuffle(a, b, (UDSP_V4I){i, j, k, l})
 #endif
@@ -222,6 +226,79 @@ static inline float udsp_vhmin(UDSP_VF v) { return v; }
 #define UDSP_NO_SLP __attribute__((optimize("no-tree-slp-vectorize")))
 #else
 #define UDSP_NO_SLP
+#endif
+
+#if UDSP_W > 1
+/* base[idx] per lane */
+static inline UDSP_VF udsp_vgather(const float *base, UDSP_VI idx) {
+#if defined(__AVX2__)
+  return (UDSP_VF)_mm256_i32gather_ps(base, (__m256i)idx, 4);
+#else
+  UDSP_VF v;
+  UDSP_UNROLL
+  for (int j = 0; j < UDSP_W; j++) {
+    v[j] = base[idx[j]];
+  }
+  return v;
+#endif
+}
+
+/* fx/line.h's udsp_hermite per lane: the same operations in its order */
+static inline UDSP_VF udsp_vhermite(UDSP_VF ym1, UDSP_VF y0, UDSP_VF y1,
+                                    UDSP_VF y2, UDSP_VF x) {
+  const UDSP_VF c1 = 0.5f * (y1 - ym1);
+  const UDSP_VF c2 = ym1 - 2.5f * y0 + 2.0f * y1 - 0.5f * y2;
+  const UDSP_VF c3 = 0.5f * (y2 - ym1) + 1.5f * (y0 - y1);
+  return ((c3 * x + c2) * x + c1) * x + y0;
+}
+
+/* a delay line's four taps per lane (fx/line.h's udsp_hermite's points):
+ * the ring at base + off, mask its length - 1, at (masked) the newest
+ * tap's neighbour -- at + 1, at, at - 1, at - 2 back as ym1 and *y0..*y2.
+ * They lie side by side in the ring: a load a lane and a transpose where
+ * none of them wraps, else gathered */
+static inline UDSP_VF udsp_vtaps(const float *base, UDSP_VI off, UDSP_VI at,
+                                 UDSP_VI mask, UDSP_VF *y0, UDSP_VF *y1,
+                                 UDSP_VF *y2) {
+#if defined(__SSE__)
+  const UDSP_VI edge = (at < 2) | (at > mask - 1);
+  int wraps = 0;
+  for (int k = 0; k < UDSP_W; k++) {
+    wraps |= edge[k];
+  }
+  if (!wraps) {
+#if defined(__AVX__)
+    __m256 r[4];
+    for (int k = 0; k < 4; k++) {
+      r[k] = _mm256_set_m128(_mm_loadu_ps(base + off[k + 4] + at[k + 4] - 2),
+                             _mm_loadu_ps(base + off[k] + at[k] - 2));
+    }
+    const __m256 t0 = _mm256_unpacklo_ps(r[0], r[1]);
+    const __m256 t1 = _mm256_unpackhi_ps(r[0], r[1]);
+    const __m256 t2 = _mm256_unpacklo_ps(r[2], r[3]);
+    const __m256 t3 = _mm256_unpackhi_ps(r[2], r[3]);
+    *y2 = (UDSP_VF)_mm256_shuffle_ps(t0, t2, 0x44);
+    *y1 = (UDSP_VF)_mm256_shuffle_ps(t0, t2, 0xee);
+    *y0 = (UDSP_VF)_mm256_shuffle_ps(t1, t3, 0x44);
+    return (UDSP_VF)_mm256_shuffle_ps(t1, t3, 0xee);
+#else
+    __m128 r0 = _mm_loadu_ps(base + off[0] + at[0] - 2),
+           r1 = _mm_loadu_ps(base + off[1] + at[1] - 2);
+    __m128 r2 = _mm_loadu_ps(base + off[2] + at[2] - 2),
+           r3 = _mm_loadu_ps(base + off[3] + at[3] - 2);
+    _MM_TRANSPOSE4_PS(r0, r1, r2, r3);
+    *y2 = (UDSP_VF)r0;
+    *y1 = (UDSP_VF)r1;
+    *y0 = (UDSP_VF)r2;
+    return (UDSP_VF)r3;
+#endif
+  }
+#endif
+  *y0 = udsp_vgather(base, off + at);
+  *y1 = udsp_vgather(base, off + ((at - 1) & mask));
+  *y2 = udsp_vgather(base, off + ((at - 2) & mask));
+  return udsp_vgather(base, off + ((at + 1) & mask));
+}
 #endif
 
 #endif

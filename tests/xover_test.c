@@ -1,6 +1,7 @@
 #include "udsp_test.h"
 
 #include <math.h>
+#include <stdint.h>
 #include <string.h>
 
 #include "fx/xover.h"
@@ -115,7 +116,90 @@ static void test_one_and_alias(void) {
   UDSP_TEST_ASSERT(worst == 0.0f, "in as the last output: the same bits");
 }
 
+/* the section-at-a-time crossover (before the wavefront), three bands:
+ * the reference */
+static void ref_tick(const UDSP_XOVER_SPLIT *c, float x, float *ic, float *v1,
+                     float *v2) {
+  const float v3 = x - ic[1];
+  *v1 = c->a1 * ic[0] + c->a2 * v3;
+  *v2 = ic[1] + c->a2 * ic[0] + c->a3 * v3;
+  ic[0] = 2.0f * *v1 - ic[0];
+  ic[1] = 2.0f * *v2 - ic[1];
+}
+
+static void ref_split3(UDSP_XOVER *x, const float *from, float *const *out,
+                       size_t frames) {
+  memmove(out[2], from, frames * 2 * sizeof(float));
+  for (int s = 0; s < 2; s++) {
+    const UDSP_XOVER_SPLIT *c = &x->c[s];
+    for (size_t i = 0; i < frames; i++) {
+      for (int ch = 0; ch < 2; ch++) {
+        const float v = out[2][2 * i + ch];
+        float v1, v2, w1, w2;
+        ref_tick(c, v, x->sec[s][0][ch], &v1, &v2);
+        const float hp = v - c->k * v1 - v2;
+        ref_tick(c, v2, x->sec[s][1][ch], &w1, &w2);
+        out[s][2 * i + ch] = w2;
+        ref_tick(c, hp, x->sec[s][2][ch], &w1, &w2);
+        out[2][2 * i + ch] = hp - c->k * w1 - w2;
+      }
+    }
+  }
+  for (size_t i = 0; i < frames; i++) {
+    for (int ch = 0; ch < 2; ch++) {
+      const float v = out[0][2 * i + ch];
+      float v1, v2;
+      ref_tick(&x->c[1], v, x->ap[0][1][ch], &v1, &v2);
+      out[0][2 * i + ch] = v - 2.0f * x->c[1].k * v1;
+    }
+  }
+}
+
+/* three bands (Multiband Dynamics'), run as a wavefront: the reference's
+ * bits at any call length, retuned between calls, the input in place */
+static void test_three_as_reference(void) {
+  static float got[3][2 * 600], want[3][2 * 600], src[2 * 600];
+  uint32_t seed = 7;
+  for (int i = 0; i < 2 * 600; i++) {
+    seed = seed * 1664525u + 1013904223u;
+    src[i] = (float)(seed >> 8) / 16777216.0f - 0.5f;
+  }
+  UDSP_XOVER a, b;
+  udsp_xover_reset(&a);
+  udsp_xover_reset(&b);
+  static const size_t LENS[] = {1, 2, 3, 4, 5, 7, 64, 256, 1, 3, 254};
+  int same = 1, at = 0;
+  for (size_t r = 0; r < sizeof LENS / sizeof *LENS; r++) {
+    const float hz[2] = {80.0f + 40.0f * (float)r, 2000.0f + 300.0f * (float)r};
+    udsp_xover_set(&a, 3, hz, RATE);
+    udsp_xover_set(&b, 3, hz, RATE);
+    const size_t n = LENS[r];
+    float *g[3] = {got[0], got[1], got[2]}, *w[3] = {want[0], want[1], want[2]};
+    const float *x = src + 2 * (at % 300);
+    if (r % 2) { /* in place: the input in the last band's buffer */
+      memcpy(got[2], x, n * 2 * sizeof(float));
+      x = got[2];
+    }
+    udsp_xover_split(&a, x, g, n);
+    ref_split3(&b, src + 2 * (at % 300), w, n);
+    for (int k = 0; k < 3; k++) {
+      same &= memcmp(got[k], want[k], n * 2 * sizeof(float)) == 0;
+    }
+    same &= memcmp(a.sec, b.sec, sizeof a.sec) == 0 &&
+            memcmp(a.ap[0][1], b.ap[0][1], sizeof a.ap[0][1]) == 0;
+    at += (int)n;
+  }
+#if defined(__clang__) && defined(__FMA__)
+  /* clang fuses a * b + c by default (DESIGN.md "Bits"): no bits to hold */
+  (void)same;
+#else
+  UDSP_TEST_ASSERT(same, "three bands: the section-at-a-time bits and state, "
+                         "calls of 1 .. 256, retuned, in place");
+#endif
+}
+
 int main(void) {
+  test_three_as_reference();
   printf("xover_test\n");
   test_flat();
   test_bands();

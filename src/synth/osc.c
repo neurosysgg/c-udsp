@@ -91,6 +91,18 @@ static UDSP_VF vwave(UDSP_OSC_WAVE w, UDSP_VF t, float dt) {
 }
 #endif
 
+void udsp_osc_sines(const float *turns, float *out, size_t n) {
+  size_t i = 0;
+#if UDSP_W > 1
+  for (; i + UDSP_W <= n; i += UDSP_W) {
+    udsp_vstore(out + i, vsine(udsp_vload(turns + i)));
+  }
+#endif
+  for (; i < n; i++) {
+    out[i] = udsp_osc_sine(turns[i]);
+  }
+}
+
 void udsp_osc_init(UDSP_OSC *o, UDSP_OSC_WAVE wave, uint32_t seed) {
   o->wave = wave;
   o->phase = 0;

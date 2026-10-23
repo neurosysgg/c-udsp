@@ -27,6 +27,7 @@
 #include "fx/eq.h"
 #include "fx/fdn.h"
 #include "fx/gain.h"
+#include "fx/line.h"
 #include "fx/shape.h"
 #include "fx/svf.h"
 #include "fx/xover.h"
@@ -480,6 +481,22 @@ static void k_fdn(void) {
   g_sink = g_out[3];
 }
 
+/* a chorus's modulated tap, a run of 64 at a time: the reads, then the
+ * pushes; the sweep's sines */
+static float g_line_mem[4096], g_taps[N], g_turns[N];
+static UDSP_LINE g_line;
+static void k_line_reads(void) {
+  for (size_t i = 0; i < N; i += 64) {
+    udsp_line_reads(&g_line, g_taps + i, g_out + i, 64);
+    udsp_line_write(&g_line, g_in + i, 64);
+  }
+  g_sink = g_out[3];
+}
+static void k_sines(void) {
+  udsp_osc_sines(g_turns, g_out, N);
+  g_sink = g_out[3];
+}
+
 static UDSP_ZDF g_zdf;
 static void k_zdf(void) {
   memcpy(g_out, g_in, N * sizeof(float));
@@ -582,6 +599,8 @@ static const KERNEL KERNELS[] = {
     {"udcomp", N / 2, k_udcomp},
     {"limiter", N / 2, k_limiter},
     {"fdn", N / 2, k_fdn},
+    {"line_reads", N, k_line_reads},
+    {"sines", N, k_sines},
     {"zdf", N, k_zdf},
     {"osc_pm", N, k_osc_pm},
     {"adsr", N, k_adsr},
@@ -669,6 +688,11 @@ int main(int argc, char **argv) {
   g_fdn_mem = calloc(udsp_fdn_floats(48000), sizeof(float));
   udsp_fdn_init(&g_fdn, g_fdn_mem, 48000);
   udsp_fdn_set(&g_fdn, 1.0f, 2.0f, 6000.0f, 0.6f, 0.5f, 10.0f, 1.0f);
+  udsp_line_init(&g_line, g_line_mem, 4096);
+  for (size_t i = 0; i < N; i++) {
+    g_turns[i] = (float)i / (float)N;
+    g_taps[i] = 340.0f + 96.0f * (1.0f + udsp_osc_sine(g_turns[i]));
+  }
   udsp_comp_reset(&g_comp);
   udsp_comp_set(&g_comp, -18.0f, 4.0f, 6.0f, 5.0f, 100.0f, 0, 48000);
   udsp_gate_set(&g_gate, -30.0f, 4.0f, -40.0f, 0.5f, 5.0f, 20.0f, 48000);

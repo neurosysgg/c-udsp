@@ -218,27 +218,6 @@ static inline void vhadamard(UDSP_VF *x) {
   }
 }
 
-/* base[idx] per lane */
-static inline UDSP_VF gather(const float *base, UDSP_VI idx) {
-#if defined(__AVX2__)
-  return (UDSP_VF)_mm256_i32gather_ps(base, (__m256i)idx, 4);
-#else
-  UDSP_VF v;
-  UDSP_UNROLL
-  for (int j = 0; j < UDSP_W; j++) {
-    v[j] = base[idx[j]];
-  }
-  return v;
-#endif
-}
-
-static inline UDSP_VF vhermite(UDSP_VF ym1, UDSP_VF y0, UDSP_VF y1, UDSP_VF y2,
-                               UDSP_VF x) {
-  const UDSP_VF c1 = 0.5f * (y1 - ym1);
-  const UDSP_VF c2 = ym1 - 2.5f * y0 + 2.0f * y1 - 0.5f * y2;
-  const UDSP_VF c3 = 0.5f * (y2 - ym1) + 1.5f * (y0 - y1);
-  return ((c3 * x + c2) * x + c1) * x + y0;
-}
 #endif
 
 #if UDSP_W > 1
@@ -286,12 +265,10 @@ static void fdn_lanes(UDSP_FDN *f, const float *in, float *wet, size_t frames) {
       const UDSP_VF d = len[g] + depth * (1.0f + mod_c[g] * mc + mod_s[g] * ms);
       const UDSP_VI i = __builtin_convertvector(d, UDSP_VI);
       const UDSP_VF fr = d - __builtin_convertvector(i, UDSP_VF);
-      const UDSP_VI at = w[g] - i;
-      const UDSP_VF y =
-          vhermite(gather(base, off[g] + ((at + 1) & mask[g])),
-                   gather(base, off[g] + (at & mask[g])),
-                   gather(base, off[g] + ((at - 1) & mask[g])),
-                   gather(base, off[g] + ((at - 2) & mask[g])), fr);
+      UDSP_VF y0, y1, y2;
+      const UDSP_VF ym1 = udsp_vtaps(base, off[g], (w[g] - i) & mask[g],
+                                     mask[g], &y0, &y1, &y2);
+      const UDSP_VF y = udsp_vhermite(ym1, y0, y1, y2, fr);
       lp[g] += damp * (y - lp[g]);
       s[g] = lp[g];
     }

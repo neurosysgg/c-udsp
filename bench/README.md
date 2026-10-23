@@ -544,3 +544,25 @@ eq chain with its channel loop rolled 11.0. `-fno-strict-aliasing`
 `udsp_fdn_idle(f, frames)` came with it: a host that skips a reverb in
 silence (ctui-daw's sleep) turns its modulation on exactly as that many
 frames of udsp_fdn_stereo would, so the reverb wakes in step.
+
+### Multiband, the chorus, the reverb's reads (session 258)
+
+The next of ctui-daw's leads (Multiband's crossover, the chorus; the
+synth's were its own control code). The same bits again (ulp.c's
+hashes vs before in gcc -O2, -v3 and the scalar build; the variants'
+suites; ctui-daw's render hashes in gcc, -v3 and clang). ns per call:
+
+| kernel | gcc-O2 | gcc-O2-v3 | clang-O2 | what |
+|---|---|---|---|---|
+| xover3 | 21110 -> 5535 (3.8x) | 21029 -> 5109 (4.1x) | 26039 -> 5993 (4.3x) | three bands as one wavefront: a channel's seven sections (both splits' three, band 0's allpass) in four 4-lane vectors, each a frame behind the one feeding it, one shuffle a step |
+| fdn | 40670 -> 30997 (1.31x) | 33914 -> 31272 (1.08x) | 35918 -> 29951 (1.20x) | `udsp_vtaps`: a line's four Hermite taps lie side by side -- a load a lane and a transpose instead of four gathers (AVX2's hardware gathers were most of the way there already) |
+| line_reads (new) | 2506 | 2159 | 2473 | `udsp_line_reads`: a modulated tap's reads a run ahead (the chorus's 64), through `udsp_vtaps`; a frame at a time ~4500 / 3500 |
+| sines (new) | 2155 | 710 | 1328 | `udsp_osc_sines`: the polynomial sine over an array (osc.c's vsine) |
+
+`udsp_vtaps` falls back to gathers for a vector where any lane's taps
+wrap the ring (four frames in a ring's length); `udsp_vgather` and
+`udsp_vhermite` moved from fdn.c into simd.h with it. Tried and dropped:
+a synth's voices' ZDFs side by side in lanes (four at a time, transposed
+in and out) -- no faster in ctui-daw's projects, where most synths have
+one or two voices sounding: the transposes and idle lanes cost what the
+overlap saves.
