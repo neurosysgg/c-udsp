@@ -214,7 +214,7 @@ static int chain_same(int n, int cut, int ramps) {
   UDSP_EQ_BAND x[8], y[8], *px[8];
   for (int i = 0; i < n; i++) {
     const UDSP_EQ_SHAPE shape =
-        (UDSP_EQ_SHAPE)((uint32_t)(noise() * 1e6f) % UDSP_EQ_SHAPES);
+        (UDSP_EQ_SHAPE)((uint32_t)((noise() + 1.0f) * 1e6f) % UDSP_EQ_SHAPES);
     udsp_eq_reset(&x[i]);
     udsp_eq_set(&x[i], shape, 300.0f + 4000.0f * (noise() + 1.0f),
                 0.5f + 4.0f * (noise() + 1.0f), 12.0f * noise(), RATE);

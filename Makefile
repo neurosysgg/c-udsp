@@ -86,7 +86,9 @@ test-valgrind: $(TEST_RUN)
 
 # the suites under every build the kernels have a path for: gcc and clang,
 # -O2/-O3, baseline (SSE2) and x86-64-v3 (AVX2+FMA), and the plain-C one
-# (UDSP_SCALAR, the reference the vector paths are held to), and ASan+UBSan;
+# (UDSP_SCALAR, the reference the vector paths are held to), and ASan+UBSan
+# with float-cast-overflow (SAN=1's; gcc's -fsanitize=undefined leaves it
+# out, and a float cast out of range passed here unseen, session 257);
 # bench/ulp.c's tolerances too, in each. Each variant builds in
 # build/variant/NAME/, so a second run only recompiles what changed (NAME
 # without '=': a .d file's rule naming it would read as an assignment,
@@ -94,8 +96,8 @@ test-valgrind: $(TEST_RUN)
 VARIANTS = gcc:-O2 gcc:-O3 gcc:-O2,-march=x86-64-v3 gcc:-O3,-march=x86-64-v3 \
 	gcc:-O2,-DUDSP_SCALAR clang:-O2 clang:-O3,-march=x86-64-v3 \
 	clang:-O2,-DUDSP_SCALAR \
-	gcc:-O1,-march=x86-64-v3,-fsanitize=address,-fsanitize=undefined,-fno-sanitize-recover=all \
-	gcc:-O1,-fsanitize=address,-fsanitize=undefined,-fno-sanitize-recover=all
+	gcc:-O1,-march=x86-64-v3,-fsanitize=address,-fsanitize=undefined,-fsanitize=float-cast-overflow,-fno-sanitize-recover=all \
+	gcc:-O1,-fsanitize=address,-fsanitize=undefined,-fsanitize=float-cast-overflow,-fno-sanitize-recover=all
 test-variants:
 	@mkdir -p build/variant
 	@for v in $(VARIANTS); do \
