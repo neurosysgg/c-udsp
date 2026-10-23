@@ -37,4 +37,11 @@ void udsp_zdf_set(UDSP_ZDF *f, float cutoff_hz, float res, UDSP_ZDF_MODE mode,
 /* filters n samples in place */
 void udsp_zdf_mono(UDSP_ZDF *f, float *io, size_t n);
 
+/* count filters, filter j over io[j]: the same bits as count calls, but
+ * up to UDSP_ZDF_N of one mode run frame by frame together, so their
+ * chains overlap -- a synth's voices */
+#define UDSP_ZDF_N 4
+void udsp_zdf_monos(UDSP_ZDF *const f[], float *const io[], size_t count,
+                    size_t n);
+
 #endif

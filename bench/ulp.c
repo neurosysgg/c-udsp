@@ -510,7 +510,8 @@ static double k_exp2f(const float *x, size_t n) {
   return worst(M_ELEM, g_got, g_ref, NULL, 0, n);
 }
 
-/* the signal as stereo keying a compressor (peak, then RMS) and a gate,
+/* the signal as stereo keying a compressor and an up / down one (peak,
+ * then RMS) and a gate,
  * and through a limiter: their gains and output, bits only */
 static double k_dyn(const float *x, size_t n) {
   for (int rms = 0; rms < 2; rms++) {
@@ -518,6 +519,14 @@ static double k_dyn(const float *x, size_t n) {
     udsp_comp_reset(&c);
     udsp_comp_set(&c, -24.0f, 4.0f, 6.0f, 2.0f, 80.0f, rms, 48000);
     udsp_comp_gain(&c, x, g_got, n / 2);
+    hash_floats(g_got, n / 2);
+  }
+  for (int rms = 0; rms < 2; rms++) {
+    UDSP_UDCOMP c;
+    udsp_udcomp_reset(&c);
+    udsp_udcomp_set(&c, -20.0f, 4.0f, -40.0f, 3.0f, 12.0f, -80.0f, 2.0f, 60.0f,
+                    rms, 48000);
+    udsp_udcomp_gain(&c, x, g_got, n / 2);
     hash_floats(g_got, n / 2);
   }
   UDSP_GATE g;

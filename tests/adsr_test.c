@@ -1,6 +1,7 @@
 #include "udsp_test.h"
 
 #include <math.h>
+#include <stdint.h>
 #include <string.h>
 
 #include "synth/adsr.h"
@@ -80,9 +81,87 @@ static void test_sustain_and_release_from_anywhere(void) {
                    "retriggered mid-release: rises from where it was");
 }
 
+/* the render as it was, a switch a frame: the stage loops must match it */
+static void ref_render(UDSP_ADSR *e, float *out, size_t n) {
+  float v = e->value;
+  UDSP_ADSR_STAGE st = e->stage;
+  for (size_t i = 0; i < n; i++) {
+    out[i] = v;
+    switch (st) {
+    case UDSP_ADSR_ATTACK:
+      v += e->attack;
+      if (v >= 1.0f - 0.5f * e->attack) {
+        v = 1.0f;
+        st = UDSP_ADSR_DECAY;
+      }
+      break;
+    case UDSP_ADSR_DECAY: {
+      float d = (v - e->sustain) * e->decay;
+      if (d < UDSP_ADSR_FLOOR && d > -UDSP_ADSR_FLOOR) {
+        v = e->sustain;
+        st = UDSP_ADSR_SUSTAIN;
+      } else {
+        v = e->sustain + d;
+      }
+      break;
+    }
+    case UDSP_ADSR_SUSTAIN:
+      v = e->sustain;
+      break;
+    case UDSP_ADSR_RELEASE:
+      v *= e->release;
+      if (v < UDSP_ADSR_FLOOR) {
+        v = 0.0f;
+        st = UDSP_ADSR_IDLE;
+      }
+      break;
+    case UDSP_ADSR_IDLE:
+      v = 0.0f;
+      break;
+    }
+  }
+  e->value = v;
+  e->stage = st;
+}
+
+/* random gates, settings moved mid-note, random block lengths: render's
+ * and skip's bits and state those of the switch */
+static void test_against_ref(void) {
+  UDSP_ADSR a = make(3.0f, 40.0f, 0.4f, 30.0f), r = a, s = a;
+  static float got[700], want[700];
+  uint32_t seed = 7;
+  int same = 1, skipped = 1;
+  for (int step = 0; step < 4000; step++) {
+    seed = seed * 1664525u + 1013904223u;
+    const uint32_t x = seed >> 8;
+    if (x % 7 == 0) {
+      const int on = (int)(x >> 3) & 1;
+      udsp_adsr_gate(&a, on);
+      udsp_adsr_gate(&r, on);
+      udsp_adsr_gate(&s, on);
+    }
+    if (x % 23 == 0) {
+      const float sus = (float)((x >> 5) % 11) / 10.0f;
+      const float ms = 0.01f + (float)((x >> 9) % 60);
+      udsp_adsr_set(&a, ms, ms + 5.0f, sus, ms * 2.0f, RATE);
+      udsp_adsr_set(&r, ms, ms + 5.0f, sus, ms * 2.0f, RATE);
+      udsp_adsr_set(&s, ms, ms + 5.0f, sus, ms * 2.0f, RATE);
+    }
+    const size_t n = (x >> 12) % 700;
+    udsp_adsr_render(&a, got, n);
+    ref_render(&r, want, n);
+    udsp_adsr_skip(&s, n);
+    same &= !memcmp(got, want, n * sizeof(float)) && !memcmp(&a, &r, sizeof(a));
+    skipped &= !memcmp(&s, &r, sizeof(s));
+  }
+  UDSP_TEST_ASSERT(same, "the stage loops: the switch's bits and state");
+  UDSP_TEST_ASSERT(skipped, "skip: the state render leaves");
+}
+
 int main(void) {
   test_attack_linear();
   test_segments_take_their_time();
   test_sustain_and_release_from_anywhere();
+  test_against_ref();
   return udsp_test_summary();
 }

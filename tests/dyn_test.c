@@ -231,6 +231,42 @@ static void test_udcomp(void) {
                    (double)boost);
 }
 
+/* side by side, the same bits as one at a time: a peak and two RMS
+ * detectors, their own times, over blocks (their state carried) */
+static void test_udcomp_gains(void) {
+  enum { N = 3, B = 333, BLOCKS = 4 };
+  UDSP_UDCOMP one[N], side[N];
+  for (int j = 0; j < N; j++) {
+    udsp_udcomp_reset(&one[j]);
+    udsp_udcomp_set(&one[j], -20.0f + 4.0f * j, 4.0f + j, -40.0f, 3.0f, 12.0f,
+                    -80.0f, 1.0f + 7.0f * j, 30.0f + 40.0f * j, j > 0, RATE);
+    side[j] = one[j];
+  }
+  static float key[N][2 * B], a[N][B], b[N][B];
+  uint32_t seed = 1;
+  int same = 1;
+  for (int blk = 0; blk < BLOCKS; blk++) {
+    for (int j = 0; j < N; j++) {
+      for (int i = 0; i < 2 * B; i++) {
+        seed = seed * 1664525u + 1013904223u;
+        /* bursts and quiet: every branch of the curve */
+        const float amp = (blk + i / 100) % 3 ? 0.9f : 0.002f;
+        key[j][i] = amp * ((float)(seed >> 8) / 8388608.0f - 1.0f);
+      }
+      udsp_udcomp_gain(&one[j], key[j], a[j], B);
+    }
+    UDSP_UDCOMP *c[N] = {&side[0], &side[1], &side[2]};
+    const float *k[N] = {key[0], key[1], key[2]};
+    float *g[N] = {b[0], b[1], b[2]};
+    udsp_udcomp_gains(c, k, g, N, B);
+    same &= !memcmp(a, b, sizeof(a));
+    for (int j = 0; j < N; j++) {
+      same &= !memcmp(&one[j], &side[j], sizeof(one[j]));
+    }
+  }
+  UDSP_TEST_ASSERT(same, "three side by side: the bits of one at a time");
+}
+
 int main(void) {
   printf("dyn_test\n");
   test_log_exp();
@@ -238,5 +274,6 @@ int main(void) {
   test_gate();
   test_limiter();
   test_udcomp();
+  test_udcomp_gains();
   return udsp_test_summary();
 }

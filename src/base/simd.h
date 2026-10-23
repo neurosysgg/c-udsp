@@ -139,6 +139,29 @@ static inline UDSP_VF udsp_vrev(UDSP_VF v) {
 #endif
 }
 
+/* UDSP_W interleaved stereo frames from p into their left and right
+ * channels' lanes */
+static inline void udsp_vlr(const float *p, UDSP_VF *l, UDSP_VF *r) {
+  const UDSP_VF a = udsp_vload(p), b = udsp_vload(p + UDSP_W);
+#if defined(__clang__) || __GNUC__ >= 12
+#if UDSP_W == 8
+  *l = __builtin_shufflevector(a, b, 0, 2, 4, 6, 8, 10, 12, 14);
+  *r = __builtin_shufflevector(a, b, 1, 3, 5, 7, 9, 11, 13, 15);
+#else
+  *l = __builtin_shufflevector(a, b, 0, 2, 4, 6);
+  *r = __builtin_shufflevector(a, b, 1, 3, 5, 7);
+#endif
+#else
+#if UDSP_W == 8
+  *l = __builtin_shuffle(a, b, (UDSP_VI){0, 2, 4, 6, 8, 10, 12, 14});
+  *r = __builtin_shuffle(a, b, (UDSP_VI){1, 3, 5, 7, 9, 11, 13, 15});
+#else
+  *l = __builtin_shuffle(a, b, (UDSP_VI){0, 2, 4, 6});
+  *r = __builtin_shuffle(a, b, (UDSP_VI){1, 3, 5, 7});
+#endif
+#endif
+}
+
 /* the lanes moved up by one, x into lane 0: a wavefront's lane taking
  * the output its neighbour made a step before */
 static inline UDSP_VF udsp_vshift_in(UDSP_VF v, float x) {

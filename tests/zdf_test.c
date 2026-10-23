@@ -83,9 +83,86 @@ static void test_swept_stable(void) {
       (double)worst);
 }
 
+/* the filter as it was, a frame at a time with the mode's switch inside */
+static void ref_mono(UDSP_ZDF *f, float *io, size_t n) {
+  float ic1 = f->ic1, ic2 = f->ic2;
+  const float k = f->k, a1 = f->a1, a2 = f->a2, a3 = f->a3;
+  for (size_t i = 0; i < n; i++) {
+    const float v0 = io[i];
+    const float v3 = v0 - ic2;
+    const float v1 = a1 * ic1 + a2 * v3;
+    const float v2 = ic2 + a2 * ic1 + a3 * v3;
+    ic1 = 2.0f * v1 - ic1;
+    ic2 = 2.0f * v2 - ic2;
+    switch (f->mode) {
+    case UDSP_ZDF_BAND:
+      io[i] = v1;
+      break;
+    case UDSP_ZDF_HIGH:
+      io[i] = v0 - k * v1 - v2;
+      break;
+    case UDSP_ZDF_NOTCH:
+      io[i] = v0 - k * v1;
+      break;
+    default:
+      io[i] = v2;
+      break;
+    }
+  }
+  f->ic1 = ic1;
+  f->ic2 = ic2;
+}
+
+/* alone and side by side (1..6 filters, modes mixed into runs), cutoffs
+ * moved between calls: the bits and state of the loop as it was */
+static void test_against_ref(void) {
+  enum { MAX = 6, LEN = 97 };
+  UDSP_ZDF got[MAX] = {0}, want[MAX] = {0};
+  static float x[MAX][LEN], y[MAX][LEN];
+  uint32_t seed = 3;
+  int same = 1;
+  for (int trial = 0; trial < 300; trial++) {
+    const size_t count = 1 + (size_t)trial % MAX;
+    for (size_t j = 0; j < count; j++) {
+      seed = seed * 1664525u + 1013904223u;
+      const UDSP_ZDF_MODE m =
+          (UDSP_ZDF_MODE)((seed >> 9) % 4 == 3 ? (seed >> 13) % 4
+                                               : (uint32_t)trial / 75);
+      udsp_zdf_reset(&got[j]);
+      udsp_zdf_set(&got[j], 40.0f + (float)((seed >> 16) % 12000),
+                   (float)((seed >> 4) % 100) / 100.0f, m, RATE);
+      want[j] = got[j];
+    }
+    for (int call = 0; call < 4; call++) {
+      for (size_t j = 0; j < count; j++) {
+        for (int i = 0; i < LEN; i++) {
+          seed = seed * 1664525u + 1013904223u;
+          x[j][i] = y[j][i] = (float)(seed >> 8) / 8388608.0f - 1.0f;
+        }
+        ref_mono(&want[j], y[j], LEN);
+      }
+      if (count == 1) {
+        udsp_zdf_mono(&got[0], x[0], LEN);
+      } else {
+        UDSP_ZDF *f[MAX];
+        float *io[MAX];
+        for (size_t j = 0; j < count; j++) {
+          f[j] = &got[j];
+          io[j] = x[j];
+        }
+        udsp_zdf_monos(f, io, count, LEN);
+      }
+      same &= !memcmp(x, y, sizeof(x)) &&
+              !memcmp(got, want, count * sizeof(got[0]));
+    }
+  }
+  UDSP_TEST_ASSERT(same, "alone and side by side: the loop's bits and state");
+}
+
 int main(void) {
   test_dc();
   test_cutoff();
   test_swept_stable();
+  test_against_ref();
   return udsp_test_summary();
 }

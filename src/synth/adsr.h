@@ -42,6 +42,10 @@ void udsp_adsr_gate(UDSP_ADSR *e, int on);
 /* n values, a frame on each */
 void udsp_adsr_render(UDSP_ADSR *e, float *out, size_t n);
 
+/* n frames on, as udsp_adsr_render() would leave it, nothing written:
+ * an envelope only read now and then (a held one costs nothing) */
+void udsp_adsr_skip(UDSP_ADSR *e, size_t n);
+
 static inline int udsp_adsr_idle(const UDSP_ADSR *e) {
   return e->stage == UDSP_ADSR_IDLE;
 }

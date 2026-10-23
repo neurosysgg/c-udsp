@@ -32,45 +32,87 @@ void udsp_adsr_gate(UDSP_ADSR *e, int on) {
   }
 }
 
-void udsp_adsr_render(UDSP_ADSR *e, float *out, size_t n) {
+/* a loop per stage, n frames on: per frame the operations of one switch
+ * over the stage, in its order (the same bits), without its dispatch --
+ * and a held sustain or idle is a fill. out NULL: only the state moves */
+static inline __attribute__((always_inline)) void walk(UDSP_ADSR *e, float *out,
+                                                       size_t n) {
   float v = e->value;
   UDSP_ADSR_STAGE st = e->stage;
-  for (size_t i = 0; i < n; i++) {
-    out[i] = v;
+  size_t i = 0;
+  while (i < n) {
     switch (st) {
-    case UDSP_ADSR_ATTACK:
-      v += e->attack;
+    case UDSP_ADSR_ATTACK: {
       /* within half a step: the sum's rounding doesn't cost a frame */
-      if (v >= 1.0f - 0.5f * e->attack) {
-        v = 1.0f;
-        st = UDSP_ADSR_DECAY;
+      const float a = e->attack, top = 1.0f - 0.5f * e->attack;
+      for (; i < n; i++) {
+        if (out) {
+          out[i] = v;
+        }
+        v += a;
+        if (v >= top) {
+          v = 1.0f;
+          st = UDSP_ADSR_DECAY;
+          i++;
+          break;
+        }
       }
       break;
+    }
     case UDSP_ADSR_DECAY: {
-      float d = (v - e->sustain) * e->decay;
-      if (d < UDSP_ADSR_FLOOR && d > -UDSP_ADSR_FLOOR) {
-        v = e->sustain;
-        st = UDSP_ADSR_SUSTAIN;
-      } else {
-        v = e->sustain + d;
+      const float s = e->sustain, k = e->decay;
+      for (; i < n; i++) {
+        if (out) {
+          out[i] = v;
+        }
+        const float d = (v - s) * k;
+        if (d < UDSP_ADSR_FLOOR && d > -UDSP_ADSR_FLOOR) {
+          v = s;
+          st = UDSP_ADSR_SUSTAIN;
+          i++;
+          break;
+        }
+        v = s + d;
+      }
+      break;
+    }
+    case UDSP_ADSR_RELEASE: {
+      const float k = e->release;
+      for (; i < n; i++) {
+        if (out) {
+          out[i] = v;
+        }
+        v *= k;
+        if (v < UDSP_ADSR_FLOOR) {
+          v = 0.0f;
+          st = UDSP_ADSR_IDLE;
+          i++;
+          break;
+        }
       }
       break;
     }
     case UDSP_ADSR_SUSTAIN:
-      v = e->sustain; /* a sustain moved while held */
-      break;
-    case UDSP_ADSR_RELEASE:
-      v *= e->release;
-      if (v < UDSP_ADSR_FLOOR) {
-        v = 0.0f;
-        st = UDSP_ADSR_IDLE;
-      }
-      break;
     case UDSP_ADSR_IDLE:
-      v = 0.0f;
+      /* the first frame what it was (a sustain moved while held), then
+       * the level */
+      if (out) {
+        out[i++] = v;
+      }
+      v = st == UDSP_ADSR_SUSTAIN ? e->sustain : 0.0f;
+      if (out) {
+        for (; i < n; i++) {
+          out[i] = v;
+        }
+      }
+      i = n;
       break;
     }
   }
   e->value = v;
   e->stage = st;
 }
+
+void udsp_adsr_render(UDSP_ADSR *e, float *out, size_t n) { walk(e, out, n); }
+
+void udsp_adsr_skip(UDSP_ADSR *e, size_t n) { walk(e, NULL, n); }

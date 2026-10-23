@@ -39,6 +39,7 @@ float udsp_exp2f(float x) {
   static const float INV[9] = {0,        1.0f,     1.0f / 2, 1.0f / 3, 1.0f / 4,
                                1.0f / 5, 1.0f / 6, 1.0f / 7, 1.0f / 8};
   float p = 1.0f;
+  UDSP_UNROLL
   for (int k = 8; k >= 1; k--) {
     p = 1.0f + p * y * INV[k];
   }
@@ -73,6 +74,7 @@ static UDSP_VF vexp2f(UDSP_VF x) {
   static const float INV[9] = {0,        1.0f,     1.0f / 2, 1.0f / 3, 1.0f / 4,
                                1.0f / 5, 1.0f / 6, 1.0f / 7, 1.0f / 8};
   UDSP_VF p = udsp_vsplat(1.0f);
+  UDSP_UNROLL
   for (int k = 8; k >= 1; k--) {
     p = 1.0f + p * y * INV[k];
   }
@@ -80,16 +82,17 @@ static UDSP_VF vexp2f(UDSP_VF x) {
 }
 #endif
 
-/* x[i] = scale * log2(x[i]), x > 0 */
-static void log2_scaled(float *x, size_t n, float scale) {
+/* x[i] = scale * log2(x[i]), x floored at lo (> 0) */
+static void log2_scaled(float *x, size_t n, float lo, float scale) {
   size_t i = 0;
 #if UDSP_W > 1
   for (; i + UDSP_W <= n; i += UDSP_W) {
-    udsp_vstore(x + i, scale * vlog2f(udsp_vload(x + i)));
+    const UDSP_VF v = udsp_vload(x + i);
+    udsp_vstore(x + i, scale * vlog2f(udsp_vsel(v < lo, udsp_vsplat(lo), v)));
   }
 #endif
   for (; i < n; i++) {
-    x[i] = scale * udsp_log2f(x[i]);
+    x[i] = scale * udsp_log2f(x[i] < lo ? lo : x[i]);
   }
 }
 
@@ -108,28 +111,110 @@ static void gains_from_db(float *db, size_t n, float shut) {
   }
 }
 
+/* the key's louder channel a frame into x: its |x|, or its square */
+static void key_peak(const float *key, float *x, size_t frames) {
+  size_t i = 0;
+#if UDSP_W > 1
+  for (; i + UDSP_W <= frames; i += UDSP_W) {
+    UDSP_VF l, r;
+    udsp_vlr(key + 2 * i, &l, &r);
+    /* (-0's sign and a NaN's are lost: the floor and log2 never see
+     * them) */
+    l = udsp_vabs(l);
+    r = udsp_vabs(r);
+    udsp_vstore(x + i, udsp_vsel(l > r, l, r));
+  }
+#endif
+  for (; i < frames; i++) {
+    const float a = key[2 * i] < 0.0f ? -key[2 * i] : key[2 * i];
+    const float b = key[2 * i + 1] < 0.0f ? -key[2 * i + 1] : key[2 * i + 1];
+    x[i] = a > b ? a : b;
+  }
+}
+
+static void key_sq(const float *key, float *x, size_t frames) {
+  size_t i = 0;
+#if UDSP_W > 1
+  for (; i + UDSP_W <= frames; i += UDSP_W) {
+    UDSP_VF l, r;
+    udsp_vlr(key + 2 * i, &l, &r);
+    l *= l;
+    r *= r;
+    udsp_vstore(x + i, udsp_vsel(l > r, l, r));
+  }
+#endif
+  for (; i < frames; i++) {
+    const float l = key[2 * i], r = key[2 * i + 1];
+    x[i] = l * l > r * r ? l * l : r * r;
+  }
+}
+
+#define PEAK_FLOOR 1e-15f /* -300 dB */
+#define MS_FLOOR 1e-30f
+
+/* s = x + a (s - x) along each of n rows of x, in place, a = att[r]
+ * while x falls under s, else rel[r]: the smoother (RMS's mean square
+ * too, att = rel). Frame by frame across the rows, so their chains (~12
+ * cycles a frame each, the CPU waiting on them) overlap; each row's
+ * operations are its own loop's, in order */
+static inline __attribute__((always_inline)) void
+follow_n(float *const x[], float *s, const float *att, const float *rel,
+         size_t frames, size_t n) {
+  /* all local: no store into a row can change them (-fno-strict-aliasing
+   * builds would reload the pointers every frame) */
+  float *row[UDSP_UDCOMP_N];
+  float v[UDSP_UDCOMP_N], at[UDSP_UDCOMP_N], re[UDSP_UDCOMP_N];
+  for (size_t r = 0; r < n; r++) {
+    row[r] = x[r];
+    v[r] = s[r];
+    at[r] = att[r];
+    re[r] = rel[r];
+  }
+  for (size_t i = 0; i < frames; i++) {
+    UDSP_UNROLL
+    for (size_t r = 0; r < n; r++) {
+      const float want = row[r][i];
+      const float a = want < v[r] ? at[r] : re[r];
+      v[r] = want + a * (v[r] - want);
+      row[r][i] = v[r];
+    }
+  }
+  for (size_t r = 0; r < n; r++) {
+    s[r] = v[r];
+  }
+}
+
+static void follow(float *const x[], float *s, const float *att,
+                   const float *rel, size_t n, size_t frames) {
+  switch (n) {
+  case 1:
+    follow_n(x, s, att, rel, frames, 1);
+    break;
+  case 2:
+    follow_n(x, s, att, rel, frames, 2);
+    break;
+  case 3:
+    follow_n(x, s, att, rel, frames, 3);
+    break;
+  case 4:
+    follow_n(x, s, att, rel, frames, 4);
+    break;
+  default:
+    break;
+  }
+}
+
 /* the key's level a frame into x, dB: its peak (the louder channel's)
  * or its mean square over ms_coef's 10 ms (ms the running one) */
 static void key_db(const float *key, float *x, size_t frames, int rms, float mc,
                    float *ms_io) {
   if (rms) {
-    float ms = *ms_io;
-    for (size_t i = 0; i < frames; i++) {
-      const float l = key[2 * i], r = key[2 * i + 1];
-      const float sq = l * l > r * r ? l * l : r * r;
-      ms = sq + mc * (ms - sq);
-      x[i] = ms < 1e-30f ? 1e-30f : ms;
-    }
-    *ms_io = ms;
-    log2_scaled(x, frames, 0.5f * UDSP_DB_PER_LOG2);
+    key_sq(key, x, frames);
+    follow(&x, ms_io, &mc, &mc, 1, frames);
+    log2_scaled(x, frames, MS_FLOOR, 0.5f * UDSP_DB_PER_LOG2);
   } else {
-    for (size_t i = 0; i < frames; i++) {
-      float a = key[2 * i] < 0.0f ? -key[2 * i] : key[2 * i];
-      float b = key[2 * i + 1] < 0.0f ? -key[2 * i + 1] : key[2 * i + 1];
-      a = a > b ? a : b;
-      x[i] = a < 1e-15f ? 1e-15f : a;
-    }
-    log2_scaled(x, frames, UDSP_DB_PER_LOG2);
+    key_peak(key, x, frames);
+    log2_scaled(x, frames, PEAK_FLOOR, UDSP_DB_PER_LOG2);
   }
 }
 
@@ -247,35 +332,71 @@ static inline float ud_gain(const UDSP_UDCOMP *c, float x) {
   return 0.0f;
 }
 
-/* comp's passes */
-void udsp_udcomp_gain(UDSP_UDCOMP *c, const float *key, float *gain,
-                      size_t frames) {
-  key_db(key, gain, frames, c->rms, c->ms_coef, &c->ms);
+/* the curve's gain (dB) for each level in x, in place */
+static void ud_want(const UDSP_UDCOMP *c, float *x, size_t frames) {
   size_t i = 0;
 #if UDSP_W > 1
   for (; i + UDSP_W <= frames; i += UDSP_W) {
-    const UDSP_VF x = udsp_vload(gain + i);
-    const UDSP_VF down = c->a_slope * (x - c->a_thr);
-    UDSP_VF up = c->b_slope * (c->b_thr - x);
+    const UDSP_VF v = udsp_vload(x + i);
+    const UDSP_VF down = c->a_slope * (v - c->a_thr);
+    UDSP_VF up = c->b_slope * (c->b_thr - v);
     up = udsp_vsel(up < c->up_max, up, udsp_vsplat(c->up_max));
     const UDSP_VF r =
-        udsp_vsel((x < c->b_thr) & (x > c->floor), up, udsp_vsplat(0.0f));
-    udsp_vstore(gain + i, udsp_vsel(x > c->a_thr, down, r));
+        udsp_vsel((v < c->b_thr) & (v > c->floor), up, udsp_vsplat(0.0f));
+    udsp_vstore(x + i, udsp_vsel(v > c->a_thr, down, r));
   }
 #endif
   for (; i < frames; i++) {
-    gain[i] = ud_gain(c, gain[i]);
+    x[i] = ud_gain(c, x[i]);
   }
-  float db = c->db;
-  const float att = c->att, rel = c->rel;
-  for (i = 0; i < frames; i++) {
-    const float want = gain[i];
-    const float a = want < db ? att : rel;
-    db = want + a * (db - want);
-    gain[i] = db;
+}
+
+/* comp's passes, the recurrences side by side: RMS's for those
+ * detecting it (key_db()'s), then the smoother's */
+void udsp_udcomp_gains(UDSP_UDCOMP *const c[], const float *const key[],
+                       float *const gain[], size_t n, size_t frames) {
+  n = n > UDSP_UDCOMP_N ? UDSP_UDCOMP_N : n;
+  /* (zeroed: gcc can't tell only the first m are read) */
+  float *rows[UDSP_UDCOMP_N] = {0};
+  float ms[UDSP_UDCOMP_N] = {0}, s[UDSP_UDCOMP_N] = {0};
+  float att[UDSP_UDCOMP_N] = {0}, rel[UDSP_UDCOMP_N] = {0};
+  size_t m = 0;
+  for (size_t j = 0; j < n; j++) {
+    if (!c[j]->rms) {
+      key_db(key[j], gain[j], frames, 0, 0.0f, NULL);
+      continue;
+    }
+    float *x = gain[j];
+    key_sq(key[j], x, frames);
+    rows[m] = x;
+    ms[m] = c[j]->ms;
+    att[m] = rel[m] = c[j]->ms_coef;
+    m++;
   }
-  c->db = db;
-  gains_from_db(gain, frames, -INFINITY); /* finite: never */
+  follow(rows, ms, att, rel, m, frames);
+  m = 0;
+  for (size_t j = 0; j < n; j++) {
+    float *x = gain[j];
+    if (c[j]->rms) {
+      c[j]->ms = ms[m++];
+      log2_scaled(x, frames, MS_FLOOR, 0.5f * UDSP_DB_PER_LOG2);
+    }
+    ud_want(c[j], x, frames);
+    rows[j] = x;
+    s[j] = c[j]->db;
+    att[j] = c[j]->att;
+    rel[j] = c[j]->rel;
+  }
+  follow(rows, s, att, rel, n, frames);
+  for (size_t j = 0; j < n; j++) {
+    c[j]->db = s[j];
+    gains_from_db(gain[j], frames, -INFINITY); /* finite: never */
+  }
+}
+
+void udsp_udcomp_gain(UDSP_UDCOMP *c, const float *key, float *gain,
+                      size_t frames) {
+  udsp_udcomp_gains(&c, &key, &gain, 1, frames);
 }
 
 float udsp_udcomp_curve(const UDSP_UDCOMP *c, float in_db) {

@@ -91,6 +91,14 @@ void udsp_udcomp_set(UDSP_UDCOMP *c, float above_db, float above_ratio,
 void udsp_udcomp_gain(UDSP_UDCOMP *c, const float *key, float *gain,
                       size_t frames);
 
+/* n (<= UDSP_UDCOMP_N) of them side by side, compressor j's gain from
+ * key[j] into gain[j]: the same bits as n calls, but their recurrences
+ * (RMS's, the smoother's) run frame by frame together, so their chains
+ * overlap -- a multiband's bands */
+#define UDSP_UDCOMP_N 4
+void udsp_udcomp_gains(UDSP_UDCOMP *const c[], const float *const key[],
+                       float *const gain[], size_t n, size_t frames);
+
 /* the static curve: the level out (dB) for a steady level in (dB) */
 float udsp_udcomp_curve(const UDSP_UDCOMP *c, float in_db);
 

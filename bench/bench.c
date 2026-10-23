@@ -453,6 +453,17 @@ static void k_udcomp(void) {
   g_sink = g_out[3];
 }
 
+/* a multiband's three compressors, side by side (frames: each band's) */
+static UDSP_UDCOMP g_udc3[3];
+static float g_gain3[3][N / 2];
+static void k_udcomp3(void) {
+  UDSP_UDCOMP *c[3] = {&g_udc3[0], &g_udc3[1], &g_udc3[2]};
+  const float *k[3] = {g_in, g_in, g_in};
+  float *g[3] = {g_gain3[0], g_gain3[1], g_gain3[2]};
+  udsp_udcomp_gains(c, k, g, 3, N / 2);
+  g_sink = g_gain3[1][3];
+}
+
 /* a compressor's gain from a stereo key (peak), and a limiter over 1 ms
  * of lookahead */
 static UDSP_COMP g_comp;
@@ -497,6 +508,18 @@ static void k_sines(void) {
   g_sink = g_out[3];
 }
 
+/* a synth's four voices' filters side by side */
+static UDSP_ZDF g_zdf4[4];
+static float g_voice4[4][N / 4];
+static void k_zdf4(void) {
+  UDSP_ZDF *f[4] = {&g_zdf4[0], &g_zdf4[1], &g_zdf4[2], &g_zdf4[3]};
+  float *io[4] = {g_voice4[0], g_voice4[1], g_voice4[2], g_voice4[3]};
+  for (int j = 0; j < 4; j++) {
+    memcpy(g_voice4[j], g_in + j * (N / 4), N / 4 * sizeof(float));
+  }
+  udsp_zdf_monos(f, io, 4, N / 4);
+  g_sink = g_voice4[2][3];
+}
 static UDSP_ZDF g_zdf;
 static void k_zdf(void) {
   memcpy(g_out, g_in, N * sizeof(float));
@@ -597,11 +620,13 @@ static const KERNEL KERNELS[] = {
     {"xover3", N / 2, k_xover3},
     {"disperse64", N / 2, k_disperse64},
     {"udcomp", N / 2, k_udcomp},
+    {"udcomp3", N / 2, k_udcomp3},
     {"limiter", N / 2, k_limiter},
     {"fdn", N / 2, k_fdn},
     {"line_reads", N, k_line_reads},
     {"sines", N, k_sines},
     {"zdf", N, k_zdf},
+    {"zdf4", N, k_zdf4},
     {"osc_pm", N, k_osc_pm},
     {"adsr", N, k_adsr},
     {"fmop_fb", N, k_fmop_fb},
@@ -710,6 +735,11 @@ int main(int argc, char **argv) {
   udsp_udcomp_reset(&g_udcomp);
   udsp_udcomp_set(&g_udcomp, -20.0f, 8.0f, -40.0f, 4.0f, 24.0f, -80.0f, 2.0f,
                   60.0f, 1, 48000);
+  for (int j = 0; j < 3; j++) {
+    udsp_udcomp_reset(&g_udc3[j]);
+    udsp_udcomp_set(&g_udc3[j], -20.0f, 8.0f, -40.0f, 4.0f, 24.0f, -80.0f,
+                    2.0f + j, 60.0f, 1, 48000);
+  }
   udsp_eq_reset(&g_eq_bell);
   udsp_eq_set(&g_eq_bell, UDSP_EQ_BELL, 1200.0f, 1.0f, 6.0f, 48000);
   udsp_eq_reset(&g_eq_cut);
@@ -724,6 +754,10 @@ int main(int argc, char **argv) {
   udsp_svf_set(&g_svf, 1200.0f, 0.5f, UDSP_SVF_LOW, 48000);
   udsp_zdf_reset(&g_zdf);
   udsp_zdf_set(&g_zdf, 1200.0f, 0.5f, UDSP_ZDF_LOW, 48000);
+  for (int j = 0; j < 4; j++) {
+    udsp_zdf_reset(&g_zdf4[j]);
+    udsp_zdf_set(&g_zdf4[j], 600.0f + 500.0f * j, 0.5f, UDSP_ZDF_LOW, 48000);
+  }
   udsp_osc_init(&g_carrier, UDSP_OSC_SINE, 1);
   g_carrier.inc = udsp_osc_inc_hz(440.0, 48000);
   float harm[UDSP_WTAB_HARMONICS];

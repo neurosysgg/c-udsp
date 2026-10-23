@@ -21,9 +21,13 @@ tests/xover_test.c: result of integer division used in a floating point context;
 
 # the bit-exact checks: results compared as bytes on purpose -- the same
 # bits, not near values
+tests/adsr_test.c: comparing object representation of type 'UDSP_ADSR' which does not have a unique object representation; consider comparing the members of the object manually [bugprone-suspicious-memory-comparison,cert-exp42-c,cert-flp37-c]
+tests/adsr_test.c: comparing object representation of type 'UDSP_ADSR' which does not have a unique object representation; consider comparing the members of the object manually [bugprone-suspicious-memory-comparison,cert-exp42-c,cert-flp37-c]
 tests/disperse_test.c: comparing object representation of type 'UDSP_DISPERSE_STAGE' which does not have a unique object representation; consider comparing the members of the object manually [bugprone-suspicious-memory-comparison,cert-exp42-c,cert-flp37-c]
 tests/disperse_test.c: comparing object representation of type 'float' which does not have a unique object representation; consider comparing the values manually [bugprone-suspicious-memory-comparison,cert-exp42-c,cert-flp37-c]
 tests/dither_test.c: comparing object representation of type 'float' which does not have a unique object representation; consider comparing the values manually [bugprone-suspicious-memory-comparison,cert-exp42-c,cert-flp37-c]
+tests/dyn_test.c: comparing object representation of type 'UDSP_UDCOMP' which does not have a unique object representation; consider comparing the members of the object manually [bugprone-suspicious-memory-comparison,cert-exp42-c,cert-flp37-c]
+tests/dyn_test.c: comparing object representation of type 'float' which does not have a unique object representation; consider comparing the values manually [bugprone-suspicious-memory-comparison,cert-exp42-c,cert-flp37-c]
 tests/eq_test.c: comparing object representation of type 'float' which does not have a unique object representation; consider comparing the values manually [bugprone-suspicious-memory-comparison,cert-exp42-c,cert-flp37-c]
 tests/eq_test.c: comparing object representation of type 'float' which does not have a unique object representation; consider comparing the values manually [bugprone-suspicious-memory-comparison,cert-exp42-c,cert-flp37-c]
 tests/eq_test.c: comparing object representation of type 'float' which does not have a unique object representation; consider comparing the values manually [bugprone-suspicious-memory-comparison,cert-exp42-c,cert-flp37-c]
@@ -44,6 +48,7 @@ tests/wtab_test.c: comparing object representation of type 'float' which does no
 tests/xover_test.c: comparing object representation of type 'float' which does not have a unique object representation; consider comparing the values manually [bugprone-suspicious-memory-comparison,cert-exp42-c,cert-flp37-c]
 tests/xover_test.c: comparing object representation of type 'float' which does not have a unique object representation; consider comparing the values manually [bugprone-suspicious-memory-comparison,cert-exp42-c,cert-flp37-c]
 tests/xover_test.c: comparing object representation of type 'float' which does not have a unique object representation; consider comparing the values manually [bugprone-suspicious-memory-comparison,cert-exp42-c,cert-flp37-c]
+tests/zdf_test.c: comparing object representation of type 'float' which does not have a unique object representation; consider comparing the values manually [bugprone-suspicious-memory-comparison,cert-exp42-c,cert-flp37-c]
 
 # the reference loudness is only measured on signals with energy (cppcheck
 # sees the sum's 0 before the loop)
