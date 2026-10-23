@@ -14,8 +14,8 @@
 #include "adsr.h"
 #include "analyze.h"
 #include "ballistics.h"
-#include "delay.h"
 #include "conv.h"
+#include "delay.h"
 #include "disperse.h"
 #include "dyn.h"
 #include "eq.h"
@@ -36,8 +36,8 @@
 #include "spectrum.h"
 #include "svf.h"
 #include "wtab.h"
-#include "yin.h"
 #include "xover.h"
+#include "yin.h"
 #include "zdf.h"
 
 #include <math.h>
@@ -63,8 +63,7 @@ static double now_ns(void) {
 /* results land here so no kernel is optimised away */
 static volatile float g_sink;
 
-static float *g_in, *g_stereo, *g_re, *g_im, *g_out, *g_big, *g_table,
-    *g_hann;
+static float *g_in, *g_stereo, *g_re, *g_im, *g_out, *g_big, *g_table, *g_hann;
 static float g_level[64], g_target[64], g_peak[64], g_age[64];
 static UDSP_SPECTROGRAM g_sg;
 static UDSP_R128 g_r128;
@@ -283,8 +282,8 @@ static float *g_sinc_table;
 static uint64_t g_sinc_pos;
 static void k_sinc(void) {
   if (!g_sinc_table) {
-    g_sinc_table = malloc(udsp_sinc_floats(44100, 48000, UDSP_SINC_ZEROS) *
-                          sizeof(float));
+    g_sinc_table =
+        malloc(udsp_sinc_floats(44100, 48000, UDSP_SINC_ZEROS) * sizeof(float));
     udsp_sinc_init(&g_sinc, 44100, 48000, UDSP_SINC_ZEROS, g_sinc_table);
   }
   if (g_sinc_pos + N > udsp_sinc_length(&g_sinc, BIG / 2)) {

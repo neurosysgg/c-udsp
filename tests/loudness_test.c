@@ -14,14 +14,17 @@
 static void test_silence_is_floor(void) {
   float silence[UDSP_LOUDNESS_TEST_N] = {0};
   float scratch[UDSP_LOUDNESS_TEST_N];
-  float lufs = udsp_loudness_lufs_momentary(silence, UDSP_LOUDNESS_TEST_N, scratch);
-  UDSP_TEST_ASSERT(lufs == UDSP_LUFS_FLOOR, "pure silence reads exactly the LUFS floor");
+  float lufs =
+      udsp_loudness_lufs_momentary(silence, UDSP_LOUDNESS_TEST_N, scratch);
+  UDSP_TEST_ASSERT(lufs == UDSP_LUFS_FLOOR,
+                   "pure silence reads exactly the LUFS floor");
 }
 
 static void test_empty_buffer_is_floor(void) {
   float scratch[1];
-  UDSP_TEST_ASSERT(udsp_loudness_lufs_momentary(NULL, 0, scratch) == UDSP_LUFS_FLOOR,
-                  "n=0 reads the floor rather than dividing by zero");
+  UDSP_TEST_ASSERT(udsp_loudness_lufs_momentary(NULL, 0, scratch) ==
+                       UDSP_LUFS_FLOOR,
+                   "n=0 reads the floor rather than dividing by zero");
 }
 
 static void test_tone_reads_above_floor(void) {
@@ -31,7 +34,8 @@ static void test_tone_reads_above_floor(void) {
     sig[i] = sinf(2.0f * (float)M_PI * 1000.0f * (float)i / 44100.0f);
   }
   float lufs = udsp_loudness_lufs_momentary(sig, UDSP_LOUDNESS_TEST_N, scratch);
-  UDSP_TEST_ASSERT(lufs > UDSP_LUFS_FLOOR + 10.0f, "a full-scale 1kHz tone reads well above the floor");
+  UDSP_TEST_ASSERT(lufs > UDSP_LUFS_FLOOR + 10.0f,
+                   "a full-scale 1kHz tone reads well above the floor");
 }
 
 static void test_louder_signal_reads_higher(void) {
@@ -43,9 +47,12 @@ static void test_louder_signal_reads_higher(void) {
     quiet[i] = s * 0.1f;
     loud[i] = s * 1.0f;
   }
-  float lufs_quiet = udsp_loudness_lufs_momentary(quiet, UDSP_LOUDNESS_TEST_N, scratch);
-  float lufs_loud = udsp_loudness_lufs_momentary(loud, UDSP_LOUDNESS_TEST_N, scratch);
-  UDSP_TEST_ASSERT(lufs_loud > lufs_quiet, "a 10x louder signal reads a higher LUFS value");
+  float lufs_quiet =
+      udsp_loudness_lufs_momentary(quiet, UDSP_LOUDNESS_TEST_N, scratch);
+  float lufs_loud =
+      udsp_loudness_lufs_momentary(loud, UDSP_LOUDNESS_TEST_N, scratch);
+  UDSP_TEST_ASSERT(lufs_loud > lufs_quiet,
+                   "a 10x louder signal reads a higher LUFS value");
 }
 
 /* the old two-pass Direct Form I cascade, as the reference */
@@ -62,8 +69,8 @@ static double ref_lufs(const float *x, size_t n) {
     double x1 = 0, x2 = 0, y1 = 0, y2 = 0;
     for (size_t i = 0; i < n; i++) {
       double x0 = buf[i];
-      double y0 = B[st][0] * x0 + B[st][1] * x1 + B[st][2] * x2 - B[st][3] * y1 -
-                  B[st][4] * y2;
+      double y0 = B[st][0] * x0 + B[st][1] * x1 + B[st][2] * x2 -
+                  B[st][3] * y1 - B[st][4] * y2;
       buf[i] = (float)y0;
       x2 = x1, x1 = x0, y2 = y1, y1 = y0;
     }
@@ -83,8 +90,8 @@ static void test_calibration_and_reference(void) {
     x[i] = (float)sin(2 * M_PI * 997.0 * i / 48000.0);
   }
   float lufs = udsp_loudness_lufs_momentary(x, 19200, scratch);
-  UDSP_TEST_ASSERT(fabsf(lufs + 3.01f) < 0.05f, "a 0 dBFS 997 Hz sine reads -3.01 LUFS (%.3f)",
-                   lufs);
+  UDSP_TEST_ASSERT(fabsf(lufs + 3.01f) < 0.05f,
+                   "a 0 dBFS 997 Hz sine reads -3.01 LUFS (%.3f)", lufs);
   unsigned int seed = 11;
   for (int i = 0; i < 19200; i++) {
     seed = seed * 1103515245u + 12345u;
@@ -92,8 +99,10 @@ static void test_calibration_and_reference(void) {
   }
   lufs = udsp_loudness_lufs_momentary(x, 19200, scratch);
   double want = ref_lufs(x, 19200);
-  UDSP_TEST_ASSERT(fabs(lufs - want) < 0.001, "the one-pass cascade reads the two-pass one's "
-                   "LUFS on noise (%.4f vs %.4f)", lufs, want);
+  UDSP_TEST_ASSERT(fabs(lufs - want) < 0.001,
+                   "the one-pass cascade reads the two-pass one's "
+                   "LUFS on noise (%.4f vs %.4f)",
+                   lufs, want);
 }
 
 int main(void) {

@@ -41,12 +41,13 @@ void udsp_r128_kweight(int sample_rate, double k[2][5]) {
 }
 
 static void default_weights(float *w, int channels) {
-  static const float surround[UDSP_R128_MAX_CHANNELS + 1][UDSP_R128_MAX_CHANNELS] = {
-      [4] = {1.0f, 1.0f, 1.41f, 1.41f},
-      [5] = {1.0f, 1.0f, 1.0f, 1.41f, 1.41f},
-      [6] = {1.0f, 1.0f, 1.0f, 0.0f, 1.41f, 1.41f},
-      [7] = {1.0f, 1.0f, 1.0f, 0.0f, 1.41f, 1.41f, 1.41f},
-      [8] = {1.0f, 1.0f, 1.0f, 0.0f, 1.41f, 1.41f, 1.41f, 1.41f},
+  static const float
+      surround[UDSP_R128_MAX_CHANNELS + 1][UDSP_R128_MAX_CHANNELS] = {
+          [4] = {1.0f, 1.0f, 1.41f, 1.41f},
+          [5] = {1.0f, 1.0f, 1.0f, 1.41f, 1.41f},
+          [6] = {1.0f, 1.0f, 1.0f, 0.0f, 1.41f, 1.41f},
+          [7] = {1.0f, 1.0f, 1.0f, 0.0f, 1.41f, 1.41f, 1.41f},
+          [8] = {1.0f, 1.0f, 1.0f, 0.0f, 1.41f, 1.41f, 1.41f, 1.41f},
   };
   for (int c = 0; c < channels; c++) {
     w[c] = channels < 4 ? 1.0f : surround[channels][c];
@@ -65,8 +66,7 @@ void udsp_r128_init(UDSP_R128 *m, int sample_rate, int channels) {
 /* one sample through one channel's K-weighting, both stages in
  * transposed Direct Form II as loudness.c's; doubles, since stage 2's
  * poles sit at ~0.995 where float state drifts. z is the four states */
-static inline double kweight_step(const double k[2][5], double z[4],
-                                  double v) {
+static inline double kweight_step(const double k[2][5], double z[4], double v) {
   const double *f = k[0], *g = k[1];
   double y = f[0] * v + z[0];
   z[0] = f[1] * v - f[3] * y + z[1];
@@ -81,9 +81,9 @@ static inline double kweight_step(const double k[2][5], double z[4],
  * a alone), in one loop: each channel is one serial chain of
  * multiply-adds, two of them overlap (~1.8x over a channel at a time),
  * the same operations per channel, so the same bits */
-static void channel_sumsq(const double k[2][5], double (*z)[4],
-                          const float *x, size_t n, int stride, int a, int b,
-                          double *sa, double *sb) {
+static void channel_sumsq(const double k[2][5], double (*z)[4], const float *x,
+                          size_t n, int stride, int a, int b, double *sa,
+                          double *sb) {
   double za[4], zb[4] = {0}, qa = 0.0, qb = 0.0;
   memcpy(za, z[a], sizeof(za));
   if (b < 0) {

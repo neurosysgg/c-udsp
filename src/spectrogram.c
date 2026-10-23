@@ -15,7 +15,8 @@ void udsp_spectrogram_init(UDSP_SPECTROGRAM *sg) {
   memset(sg->intensity, 0, sizeof(sg->intensity));
 }
 
-void udsp_spectrogram_push_mag(UDSP_SPECTROGRAM *sg, const float *mag, int sample_rate) {
+void udsp_spectrogram_push_mag(UDSP_SPECTROGRAM *sg, const float *mag,
+                               int sample_rate) {
   float bars_dbfs[UDSP_SPECTROGRAM_BINS];
   udsp_spectrum_bin(mag, sample_rate, bars_dbfs, UDSP_SPECTROGRAM_BINS);
 
@@ -30,12 +31,14 @@ void udsp_spectrogram_push_mag(UDSP_SPECTROGRAM *sg, const float *mag, int sampl
           sizeof(sg->intensity) - sizeof(sg->intensity[0]));
 
   for (int bin = 0; bin < UDSP_SPECTROGRAM_BINS; bin++) {
-    sg->intensity[UDSP_SPECTROGRAM_COLS - 1][bin] = quantize_dbfs(bars_dbfs[bin]);
+    sg->intensity[UDSP_SPECTROGRAM_COLS - 1][bin] =
+        quantize_dbfs(bars_dbfs[bin]);
   }
 }
 
 void udsp_spectrogram_push(UDSP_SPECTROGRAM *sg, const float *mono_tail,
-                           int sample_rate, float *scratch_re, float *scratch_im) {
+                           int sample_rate, float *scratch_re,
+                           float *scratch_im) {
   udsp_spectrum_magnitude(mono_tail, scratch_re, scratch_im, scratch_re);
   udsp_spectrogram_push_mag(sg, scratch_re, sample_rate);
 }

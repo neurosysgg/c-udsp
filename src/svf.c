@@ -27,7 +27,8 @@ static inline float svf_step(float x, float f, float q, UDSP_SVF_MODE mode,
   const float hp = x - *lp - q * *bp;
   *bp += f * hp;
   *lp += f * *bp;
-  const float out = mode == UDSP_SVF_HIGH ? hp : (mode == UDSP_SVF_BAND ? *bp : *lp);
+  const float out =
+      mode == UDSP_SVF_HIGH ? hp : (mode == UDSP_SVF_BAND ? *bp : *lp);
   *lp = clampf(*lp, -4.0f, 4.0f);
   *bp = clampf(*bp, -4.0f, 4.0f);
   return clampf(out, -4.0f, 4.0f);

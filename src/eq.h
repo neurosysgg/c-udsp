@@ -29,9 +29,9 @@ typedef enum {
 #define UDSP_EQ_STAGES 4
 
 typedef struct {
-  float g, k;          /* the prototype's: for udsp_eq_response() */
-  float a1, a2, a3;    /* the section's recurrence */
-  float m0, m1, m2;    /* its mix */
+  float g, k;       /* the prototype's: for udsp_eq_response() */
+  float a1, a2, a3; /* the section's recurrence */
+  float m0, m1, m2; /* its mix */
 } UDSP_EQ_STAGE;
 
 typedef struct {

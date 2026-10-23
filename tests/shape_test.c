@@ -53,10 +53,10 @@ static void test_shapes(void) {
           fabsf(udsp_shape1(UDSP_SHAPE_FOLD, 3.1415927f)) < 1e-5f &&
           fabsf(udsp_shape1(UDSP_SHAPE_FOLD, -1.5707963f) + 1.0f) < 1e-5f,
       "fold: 1 at pi / 2, folded back to 0 at pi, odd");
-  UDSP_TEST_ASSERT(fabsf(udsp_shape1(UDSP_SHAPE_TUBE, 1.0f) - 0.5f) < 1e-6f &&
-                       fabsf(udsp_shape1(UDSP_SHAPE_TUBE, -1.0f) +
-                             1.0f / 3.0f) < 1e-6f,
-                   "tube: the halves flatten unevenly (0.5 and -0.33 at 1)");
+  UDSP_TEST_ASSERT(
+      fabsf(udsp_shape1(UDSP_SHAPE_TUBE, 1.0f) - 0.5f) < 1e-6f &&
+          fabsf(udsp_shape1(UDSP_SHAPE_TUBE, -1.0f) + 1.0f / 3.0f) < 1e-6f,
+      "tube: the halves flatten unevenly (0.5 and -0.33 at 1)");
 }
 
 int main(void) {

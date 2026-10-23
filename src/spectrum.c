@@ -21,7 +21,8 @@ void udsp_spectrum_magnitude(const float *mono_tail, float *scratch_re,
   udsp_fft_magnitude(scratch_re, scratch_im, UDSP_FFT_N / 2, mag_out);
 }
 
-void udsp_spectrum_bin(const float *mag, int sample_rate, float *bars_out, int n_bars) {
+void udsp_spectrum_bin(const float *mag, int sample_rate, float *bars_out,
+                       int n_bars) {
   size_t half = UDSP_FFT_N / 2;
   float nyquist = (float)sample_rate / 2.0f;
   if (nyquist <= UDSP_SPECTRUM_MIN_HZ) {
@@ -65,8 +66,8 @@ void udsp_spectrum_bin(const float *mag, int sample_rate, float *bars_out, int n
 }
 
 void udsp_spectrum_bars(const float *mono_tail, int sample_rate,
-                        float *scratch_re, float *scratch_im,
-                        float *bars_out, int n_bars) {
+                        float *scratch_re, float *scratch_im, float *bars_out,
+                        int n_bars) {
   udsp_spectrum_magnitude(mono_tail, scratch_re, scratch_im, scratch_re);
   udsp_spectrum_bin(scratch_re, sample_rate, bars_out, n_bars);
 }
@@ -83,7 +84,8 @@ static void plan_bands(UDSP_SPECTRUM_PLAN *plan) {
     }
     return;
   }
-  float ratio = powf(nyquist / UDSP_SPECTRUM_MIN_HZ, 1.0f / (float)plan->n_bars);
+  float ratio =
+      powf(nyquist / UDSP_SPECTRUM_MIN_HZ, 1.0f / (float)plan->n_bars);
   float f0 = UDSP_SPECTRUM_MIN_HZ;
   for (int b = 0; b < plan->n_bars; b++) {
     float f1 = f0 * ratio;

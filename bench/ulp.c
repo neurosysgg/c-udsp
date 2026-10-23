@@ -33,12 +33,12 @@
 
 #include "adsr.h"
 #include "analyze.h"
+#include "conv.h"
 #include "delay.h"
 #include "disperse.h"
 #include "dyn.h"
 #include "eq.h"
 #include "fdn.h"
-#include "conv.h"
 #include "fft.h"
 #include "gain.h"
 #include "lfo.h"
@@ -55,8 +55,8 @@
 #include "spectrum.h"
 #include "svf.h"
 #include "wtab.h"
-#include "yin.h"
 #include "xover.h"
+#include "yin.h"
 #include "zdf.h"
 
 #include <float.h>
@@ -147,7 +147,7 @@ static double worst(METRIC m, const float *got, const double *ref,
                     const float *in, double s, size_t n) {
   double e = 0.0;
   for (size_t i = 0; i < n; i++) {
-    double scale = m == M_INPUT ? fabs((double)in[i])
+    double scale = m == M_INPUT               ? fabs((double)in[i])
                    : m == M_MAX || m == M_SUM ? s
                                               : ref[i];
     double x = m == M_EXACT ? ((double)got[i] == ref[i] ? 0.0 : INFINITY)
@@ -177,7 +177,8 @@ static void hash_floats(const float *x, size_t n) {
 /* --- the references, in double --- */
 
 static double hann_d(size_t i, size_t n) {
-  return n < 2 ? 1.0 : 0.5 - 0.5 * cos(2.0 * M_PI * (double)i / (double)(n - 1));
+  return n < 2 ? 1.0
+               : 0.5 - 0.5 * cos(2.0 * M_PI * (double)i / (double)(n - 1));
 }
 
 /* the DFT of x (n points; xi NULL = real input), bins 0..nout-1, from an
@@ -653,8 +654,8 @@ static double k_bands(const float *x, size_t n) {
   for (int rms = 0; rms < 2; rms++) {
     UDSP_UDCOMP c;
     udsp_udcomp_reset(&c);
-    udsp_udcomp_set(&c, -20.0f, 8.0f, -40.0f, 4.0f, 24.0f, -80.0f, 2.0f,
-                    60.0f, rms, 48000);
+    udsp_udcomp_set(&c, -20.0f, 8.0f, -40.0f, 4.0f, 24.0f, -80.0f, 2.0f, 60.0f,
+                    rms, 48000);
     udsp_udcomp_gain(&c, x, g_got, n / 2);
     hash_floats(g_got, n / 2);
   }
@@ -872,7 +873,9 @@ static double k_yin(const float *x, size_t n) {
     for (size_t i = 0; i < n; i++) {
       double t = (double)i / 44100.0, v = 0.0;
       for (int h = 1; h <= (k ? 6 : 1); h++) {
-        v += sin(2.0 * 3.14159265358979323846 * (k ? 98.0 : 220.0) * h * t + h) / h;
+        v +=
+            sin(2.0 * 3.14159265358979323846 * (k ? 98.0 : 220.0) * h * t + h) /
+            h;
       }
       g_got2[i] = (float)(0.4 * v);
     }

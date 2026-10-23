@@ -10,17 +10,17 @@
 static int udsp_test_pass = 0;
 static int udsp_test_fail = 0;
 
-#define UDSP_TEST_ASSERT(cond, ...)                                          \
-  do {                                                                       \
-    if (cond) {                                                             \
-      udsp_test_pass++;                                                     \
-      printf("  ok - " __VA_ARGS__);                                        \
-      printf("\n");                                                         \
-    } else {                                                                 \
-      udsp_test_fail++;                                                     \
-      printf("  FAIL - " __VA_ARGS__);                                      \
-      printf(" (%s:%d)\n", __FILE__, __LINE__);                            \
-    }                                                                        \
+#define UDSP_TEST_ASSERT(cond, ...)                                            \
+  do {                                                                         \
+    if (cond) {                                                                \
+      udsp_test_pass++;                                                        \
+      printf("  ok - " __VA_ARGS__);                                           \
+      printf("\n");                                                            \
+    } else {                                                                   \
+      udsp_test_fail++;                                                        \
+      printf("  FAIL - " __VA_ARGS__);                                         \
+      printf(" (%s:%d)\n", __FILE__, __LINE__);                                \
+    }                                                                          \
   } while (0)
 
 static int udsp_test_summary(void) {

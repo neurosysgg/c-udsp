@@ -19,7 +19,8 @@ static void test_line(void) {
   for (int i = 0; i < 100; i++) {
     udsp_line_push(&l, (float)i);
   }
-  UDSP_TEST_ASSERT(udsp_line_tap(&l, 1) == 99.0f && udsp_line_tap(&l, 40) == 60.0f,
+  UDSP_TEST_ASSERT(udsp_line_tap(&l, 1) == 99.0f &&
+                       udsp_line_tap(&l, 40) == 60.0f,
                    "a delay of 1 is the last pushed, 40 back is 60");
   UDSP_TEST_ASSERT(udsp_line_read(&l, 10.0f) == 90.0f &&
                        fabsf(udsp_line_read(&l, 10.25f) - 89.75f) < 1e-4f,
@@ -98,10 +99,12 @@ static void test_stable_and_blocks(void) {
                     (1.0f / 2147483648.0f);
     }
     for (int i = 0; i < BLOCK; i += 333) {
-      udsp_fdn_stereo(&f, a + 2 * i, a + 2 * i, i + 333 <= BLOCK ? 333 : BLOCK - i);
+      udsp_fdn_stereo(&f, a + 2 * i, a + 2 * i,
+                      i + 333 <= BLOCK ? 333 : BLOCK - i);
     }
     for (int i = 0; i < BLOCK; i += 64) {
-      udsp_fdn_stereo(&g, b + 2 * i, b + 2 * i, i + 64 <= BLOCK ? 64 : BLOCK - i);
+      udsp_fdn_stereo(&g, b + 2 * i, b + 2 * i,
+                      i + 64 <= BLOCK ? 64 : BLOCK - i);
     }
     for (int i = 0; i < 2 * BLOCK; i++) {
       e[k / 10] += (double)a[i] * a[i];

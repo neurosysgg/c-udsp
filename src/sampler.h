@@ -66,8 +66,7 @@ uint64_t udsp_resample_window(uint64_t pos_q32, uint64_t step_q32,
 /* frames STEREO frames into out from a window of ch (1 or 2) channel
  * frames, starting at pos and stepping by step; returns the position
  * after the last. A mono window goes to both sides. */
-uint64_t udsp_resample_cubic(const float *window, uint32_t ch,
-                             uint64_t pos_q32, uint64_t step_q32, float *out,
-                             size_t frames);
+uint64_t udsp_resample_cubic(const float *window, uint32_t ch, uint64_t pos_q32,
+                             uint64_t step_q32, float *out, size_t frames);
 
 #endif

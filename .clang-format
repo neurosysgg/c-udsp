@@ -1,1 +1,5 @@
+# ctui's style (ctui/.clang-format), plus: string literals stay whole --
+# the tests' messages are split by hand, at meaningful places, or not at
+# all
 BasedOnStyle: LLVM
+BreakStringLiterals: false

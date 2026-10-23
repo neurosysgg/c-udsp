@@ -18,7 +18,8 @@ static void test_hann_window(void) {
   udsp_window_hann(in, out, 8);
   UDSP_TEST_ASSERT(out[0] < 0.01f, "Hann window is ~0 at the first sample");
   UDSP_TEST_ASSERT(out[7] < 0.01f, "Hann window is ~0 at the last sample");
-  UDSP_TEST_ASSERT(out[3] > 0.9f || out[4] > 0.9f, "Hann window peaks near the center");
+  UDSP_TEST_ASSERT(out[3] > 0.9f || out[4] > 0.9f,
+                   "Hann window peaks near the center");
 }
 
 static void test_hann_window_in_place(void) {
@@ -37,9 +38,12 @@ static void test_fft_dc_signal(void) {
   udsp_fft_forward(re, im, n);
   float mag[8];
   udsp_fft_magnitude(re, im, n, mag);
-  UDSP_TEST_ASSERT(mag[0] > 7.9f, "a constant (DC) signal's entire energy lands in bin 0");
+  UDSP_TEST_ASSERT(mag[0] > 7.9f,
+                   "a constant (DC) signal's entire energy lands in bin 0");
   for (size_t i = 1; i < n; i++) {
-    UDSP_TEST_ASSERT(mag[i] < 0.01f, "every non-DC bin is ~0 for a pure DC signal (bin %zu)", i);
+    UDSP_TEST_ASSERT(mag[i] < 0.01f,
+                     "every non-DC bin is ~0 for a pure DC signal (bin %zu)",
+                     i);
   }
 }
 
@@ -55,7 +59,9 @@ static void test_fft_nyquist_signal(void) {
   udsp_fft_forward(re, im, n);
   float mag[8];
   udsp_fft_magnitude(re, im, n, mag);
-  UDSP_TEST_ASSERT(mag[4] > 7.9f, "an alternating +-1 signal's energy lands at the Nyquist bin (n/2)");
+  UDSP_TEST_ASSERT(
+      mag[4] > 7.9f,
+      "an alternating +-1 signal's energy lands at the Nyquist bin (n/2)");
 }
 
 /* --- the table-driven transforms, against a plain O(n^2) DFT in double --- */
@@ -95,7 +101,8 @@ static double rel_err(const float *re, const float *im, const double *xr,
 
 static void test_fft_table_matches_dft(void) {
   size_t cap = 4096;
-  float *in_re = malloc(cap * sizeof(float)), *in_im = malloc(cap * sizeof(float));
+  float *in_re = malloc(cap * sizeof(float)),
+        *in_im = malloc(cap * sizeof(float));
   float *re = malloc(cap * sizeof(float)), *im = malloc(cap * sizeof(float));
   float *table = malloc(UDSP_FFT_TABLE_FLOATS(cap) * sizeof(float));
   double *xr = malloc(cap * sizeof(double)), *xi = malloc(cap * sizeof(double));
@@ -114,8 +121,10 @@ static void test_fft_table_matches_dft(void) {
     memcpy(im, in_im, n * sizeof(float));
     udsp_fft_forward(re, im, n);
     double e_old = rel_err(re, im, xr, xi, n);
-    UDSP_TEST_ASSERT(e_table < 1e-5, "table FFT n=%zu matches the DFT (rel err %.2g, "
-                     "the recurrence FFT: %.2g)", n, e_table, e_old);
+    UDSP_TEST_ASSERT(e_table < 1e-5,
+                     "table FFT n=%zu matches the DFT (rel err %.2g, "
+                     "the recurrence FFT: %.2g)",
+                     n, e_table, e_old);
   }
   free(in_re), free(in_im), free(re), free(im), free(table), free(xr), free(xi);
 }
@@ -135,8 +144,9 @@ static void test_fft_real_matches_dft(void) {
     udsp_fft_table(table, n);
     udsp_fft_real(in, re, im, n, table);
     double e = rel_err(re, im, xr, xi, n / 2 + 1);
-    UDSP_TEST_ASSERT(e < 1e-5, "real FFT n=%zu matches the DFT's bins 0..n/2 (rel err %.2g)",
-                     n, e);
+    UDSP_TEST_ASSERT(
+        e < 1e-5, "real FFT n=%zu matches the DFT's bins 0..n/2 (rel err %.2g)",
+        n, e);
   }
   free(in), free(zero), free(re), free(im), free(table), free(xr), free(xi);
 }
@@ -146,7 +156,8 @@ static void test_fft_large(void) {
   size_t n = 1u << 18;
   float *in = malloc(n * sizeof(float));
   float *re = malloc(n * sizeof(float)), *im = malloc(n * sizeof(float));
-  float *rre = malloc((n / 2 + 1) * sizeof(float)), *rim = malloc((n / 2 + 1) * sizeof(float));
+  float *rre = malloc((n / 2 + 1) * sizeof(float)),
+        *rim = malloc((n / 2 + 1) * sizeof(float));
   float *table = malloc(UDSP_FFT_TABLE_FLOATS(n) * sizeof(float));
   for (size_t i = 0; i < n; i++) {
     in[i] = noise();
@@ -163,8 +174,10 @@ static void test_fft_large(void) {
     err = e > err ? e : err;
     top = m > top ? m : top;
   }
-  UDSP_TEST_ASSERT(err / top < 1e-5, "2^18 points: real and complex table FFTs agree (rel err %.2g)",
-                   err / top);
+  UDSP_TEST_ASSERT(
+      err / top < 1e-5,
+      "2^18 points: real and complex table FFTs agree (rel err %.2g)",
+      err / top);
   /* a tone at bin 1000 lands there */
   for (size_t i = 0; i < n; i++) {
     in[i] = (float)cos(2.0 * M_PI * 1000.0 * (double)i / (double)n);
@@ -176,16 +189,20 @@ static void test_fft_large(void) {
       best = k;
     }
   }
-  UDSP_TEST_ASSERT(best == 1000, "2^18 points: a tone at bin 1000 peaks there (got %zu)", best);
+  UDSP_TEST_ASSERT(best == 1000,
+                   "2^18 points: a tone at bin 1000 peaks there (got %zu)",
+                   best);
   free(in), free(re), free(im), free(rre), free(rim), free(table);
 }
 
 static void test_power_and_window_table(void) {
-  float re[9] = {3, 0, 1, -2, 5, 0.5f, 0, 1, 2}, im[9] = {4, 1, 0, 2, 0, 0.5f, 0, -1, 2};
+  float re[9] = {3, 0, 1, -2, 5, 0.5f, 0, 1, 2},
+        im[9] = {4, 1, 0, 2, 0, 0.5f, 0, -1, 2};
   float p[9];
   udsp_fft_power(re, im, 9, p);
-  UDSP_TEST_ASSERT(p[0] == 25.0f && p[1] == 1.0f && p[3] == 8.0f && p[8] == 8.0f,
-                   "power = re^2 + im^2, the tail past the vector width included");
+  UDSP_TEST_ASSERT(
+      p[0] == 25.0f && p[1] == 1.0f && p[3] == 8.0f && p[8] == 8.0f,
+      "power = re^2 + im^2, the tail past the vector width included");
   float in[37], w[37], a[37], b[37];
   for (int i = 0; i < 37; i++) {
     in[i] = noise();
@@ -197,9 +214,11 @@ static void test_power_and_window_table(void) {
   for (int i = 0; i < 37; i++) {
     same &= a[i] == b[i];
   }
-  UDSP_TEST_ASSERT(same, "a Hann table applied gives exactly udsp_window_hann()'s samples");
+  UDSP_TEST_ASSERT(
+      same, "a Hann table applied gives exactly udsp_window_hann()'s samples");
   udsp_window_apply(in, w, in, 37);
-  UDSP_TEST_ASSERT(!memcmp(in, a, sizeof(a)), "udsp_window_apply() works in place");
+  UDSP_TEST_ASSERT(!memcmp(in, a, sizeof(a)),
+                   "udsp_window_apply() works in place");
 
   /* the fused window: the same bins as windowing first, every path's size */
   for (size_t n = 4; n <= 4096; n <<= 1) {
@@ -213,9 +232,10 @@ static void test_power_and_window_table(void) {
     udsp_window_apply(sig, win, wd, n);
     udsp_fft_real(wd, r1, i1, n, tab);
     udsp_fft_real_windowed(sig, win, r2, i2, n, tab);
-    UDSP_TEST_ASSERT(!memcmp(r1, r2, (n / 2 + 1) * sizeof(float)) &&
-                         !memcmp(i1, i2, (n / 2 + 1) * sizeof(float)),
-                     "n=%zu: the fused window gives windowing first's bins exactly", n);
+    UDSP_TEST_ASSERT(
+        !memcmp(r1, r2, (n / 2 + 1) * sizeof(float)) &&
+            !memcmp(i1, i2, (n / 2 + 1) * sizeof(float)),
+        "n=%zu: the fused window gives windowing first's bins exactly", n);
   }
 }
 

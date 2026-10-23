@@ -79,11 +79,11 @@ void udsp_fdn_set(UDSP_FDN *f, float size, float decay_s, float damp_hz,
                   float diffusion, float modulation, float predelay_ms,
                   float width) {
   const unsigned rate = f->rate;
-  size = size < 0.2f ? 0.2f : (size > UDSP_FDN_SIZE_MAX ? UDSP_FDN_SIZE_MAX
-                                                          : size);
+  size = size < 0.2f ? 0.2f
+                     : (size > UDSP_FDN_SIZE_MAX ? UDSP_FDN_SIZE_MAX : size);
   decay_s = decay_s < 0.05f ? 0.05f : decay_s;
-  modulation = modulation < 0.0f ? 0.0f : (modulation > 1.0f ? 1.0f
-                                                             : modulation);
+  modulation =
+      modulation < 0.0f ? 0.0f : (modulation > 1.0f ? 1.0f : modulation);
   f->depth = modulation * MOD_MS * (float)rate / 1000.0f;
   for (int i = 0; i < UDSP_FDN_N; i++) {
     f->len[i] = LEN_MS[i] * size * (float)rate / 1000.0f;
@@ -94,10 +94,10 @@ void udsp_fdn_set(UDSP_FDN *f, float size, float decay_s, float damp_hz,
   /* a one-pole low-pass's pole for the corner: 1 - e^(-2 pi fc / fs) */
   float fc = damp_hz / (float)rate;
   fc = fc > 0.45f ? 0.45f : (fc < 0.0005f ? 0.0005f : fc);
-  f->damp = 1.0f - (float)udsp_exp2(-6.283185307179586 * 1.4426950408889634 *
-                                    fc);
-  f->ap_g = 0.75f * (diffusion < 0.0f ? 0.0f : (diffusion > 1.0f ? 1.0f
-                                                                 : diffusion));
+  f->damp =
+      1.0f - (float)udsp_exp2(-6.283185307179586 * 1.4426950408889634 * fc);
+  f->ap_g =
+      0.75f * (diffusion < 0.0f ? 0.0f : (diffusion > 1.0f ? 1.0f : diffusion));
   uint32_t pd = ms_frames(predelay_ms, rate);
   const uint32_t pd_max = ms_frames(UDSP_FDN_PREDELAY_MAX_MS, rate);
   f->predelay = pd > pd_max ? pd_max : pd;
@@ -162,7 +162,8 @@ void udsp_fdn_stereo(UDSP_FDN *f, const float *in, float *wet, size_t frames) {
     float s[UDSP_FDN_N];
     float l = 0.0f, r = 0.0f;
     for (int i = 0; i < UDSP_FDN_N; i++) {
-      const float d = f->len[i] + f->depth * (1.0f + MOD_C[i] * mc + MOD_S[i] * ms);
+      const float d =
+          f->len[i] + f->depth * (1.0f + MOD_C[i] * mc + MOD_S[i] * ms);
       const float y = udsp_line_read(&f->line[i], d);
       f->lp[i] += f->damp * (y - f->lp[i]);
       s[i] = f->lp[i];

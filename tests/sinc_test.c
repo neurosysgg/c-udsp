@@ -41,11 +41,10 @@ static void test_shape(void) {
   UDSP_TEST_ASSERT(make(&s, 44100, 48000) && s.up == 160 && s.down == 147 &&
                        !s.interp,
                    "the ratio reduced");
-  UDSP_TEST_ASSERT(udsp_sinc_length(&s, 44100) == 48000 &&
-                       udsp_sinc_length(&s, 1) == 2 &&
-                       udsp_sinc_length(&s, 147) == 160 &&
-                       udsp_sinc_length(&s, 148) == 162,
-                   "the output's length: ceil(in * up / down)");
+  UDSP_TEST_ASSERT(
+      udsp_sinc_length(&s, 44100) == 48000 && udsp_sinc_length(&s, 1) == 2 &&
+          udsp_sinc_length(&s, 147) == 160 && udsp_sinc_length(&s, 148) == 162,
+      "the output's length: ceil(in * up / down)");
   UDSP_TEST_ASSERT(make(&s, 44100, 47999) && s.interp &&
                        s.rows == UDSP_SINC_PHASES_MAX + 1,
                    "47999 Hz: too many phases, interpolated rows");

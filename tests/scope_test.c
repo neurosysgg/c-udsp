@@ -19,14 +19,18 @@ static void test_trigger_finds_rising_crossing(void) {
   /* a slow sine (a handful of cycles across the whole buffer) so there's
    * an unambiguous single rising zero-crossing well before the tail. */
   for (int i = 0; i < UDSP_SCOPE_TEST_N; i++) {
-    mono[i] = sinf(2.0f * (float)M_PI * 5.0f * (float)i / (float)UDSP_SCOPE_TEST_N);
+    mono[i] =
+        sinf(2.0f * (float)M_PI * 5.0f * (float)i / (float)UDSP_SCOPE_TEST_N);
   }
   float trace[UDSP_SCOPE_POINTS];
   udsp_scope_extract(mono, UDSP_SCOPE_TEST_N, trace);
 
-  UDSP_TEST_ASSERT(trace[0] >= -0.05f && trace[0] < 0.3f,
-                  "trace starts at/near a rising zero-crossing, not an arbitrary phase (got %f)", trace[0]);
-  UDSP_TEST_ASSERT(trace[10] > trace[0], "trace is rising just after the trigger point");
+  UDSP_TEST_ASSERT(
+      trace[0] >= -0.05f && trace[0] < 0.3f,
+      "trace starts at/near a rising zero-crossing, not an arbitrary phase (got %f)",
+      trace[0]);
+  UDSP_TEST_ASSERT(trace[10] > trace[0],
+                   "trace is rising just after the trigger point");
 }
 
 static void test_untriggered_fallback(void) {
@@ -36,8 +40,9 @@ static void test_untriggered_fallback(void) {
   }
   float trace[UDSP_SCOPE_POINTS];
   udsp_scope_extract(mono, UDSP_SCOPE_TEST_N, trace);
-  UDSP_TEST_ASSERT(trace[0] == 0.5f && trace[UDSP_SCOPE_POINTS - 1] == 0.5f,
-                  "no trigger found anywhere -> falls back to the most recent samples, unmodified");
+  UDSP_TEST_ASSERT(
+      trace[0] == 0.5f && trace[UDSP_SCOPE_POINTS - 1] == 0.5f,
+      "no trigger found anywhere -> falls back to the most recent samples, unmodified");
 }
 
 static void test_short_window_zero_pads(void) {
@@ -47,9 +52,12 @@ static void test_short_window_zero_pads(void) {
   }
   float trace[UDSP_SCOPE_POINTS];
   udsp_scope_extract(mono, 10, trace);
-  UDSP_TEST_ASSERT(trace[9] == 1.0f, "a window shorter than UDSP_SCOPE_POINTS keeps its real samples");
-  UDSP_TEST_ASSERT(trace[UDSP_SCOPE_POINTS - 1] == 0.0f,
-                  "a window shorter than UDSP_SCOPE_POINTS zero-pads the remainder");
+  UDSP_TEST_ASSERT(
+      trace[9] == 1.0f,
+      "a window shorter than UDSP_SCOPE_POINTS keeps its real samples");
+  UDSP_TEST_ASSERT(
+      trace[UDSP_SCOPE_POINTS - 1] == 0.0f,
+      "a window shorter than UDSP_SCOPE_POINTS zero-pads the remainder");
 }
 
 /* The period estimator's job is to make one cycle fill trace_out, so a
@@ -91,9 +99,9 @@ static void test_period_lock_holds_the_trace_still(void) {
     }
   }
   UDSP_TEST_ASSERT(worst < 0.15f,
-                  "the same tone at two phases yields the same single-cycle "
-                  "trace (max deviation %f) -- the trace holds still",
-                  worst);
+                   "the same tone at two phases yields the same single-cycle "
+                   "trace (max deviation %f) -- the trace holds still",
+                   worst);
 
   /* and it really is *one* cycle, not several: a single period of this
    * waveform crosses zero going upward exactly once across the trace. */
@@ -103,9 +111,11 @@ static void test_period_lock_holds_the_trace_still(void) {
       rising++;
     }
   }
-  UDSP_TEST_ASSERT(rising == 1,
-                  "exactly one rising zero-crossing across the trace, i.e. one "
-                  "period fills it (got %d) -- not an octave multiple", rising);
+  UDSP_TEST_ASSERT(
+      rising == 1,
+      "exactly one rising zero-crossing across the trace, i.e. one "
+      "period fills it (got %d) -- not an octave multiple",
+      rising);
 }
 
 /* white-ish noise has no period to find; the estimator must say so
@@ -136,15 +146,16 @@ static void test_aperiodic_signal_falls_back(void) {
     all_real = found;
   }
   UDSP_TEST_ASSERT(all_real,
-                  "noise finds no period and falls back to 1:1 resampling of "
-                  "the post-trigger samples, rather than locking onto noise");
+                   "noise finds no period and falls back to 1:1 resampling of "
+                   "the post-trigger samples, rather than locking onto noise");
 }
 
 /* the vector correlation picks the reference's period, trace for trace:
  * 10 pitches x steady / tremolo / decaying / noisy x 5 phases, at 2048
  * and 8192 samples */
 static void test_matches_reference(void) {
-  static const double HZ[] = {55, 82.4, 110, 146.8, 220, 329.6, 440, 587.3, 880, 1174.7};
+  static const double HZ[] = {55,    82.4, 110,   146.8, 220,
+                              329.6, 440,  587.3, 880,   1174.7};
   static float x[8192], a[UDSP_SCOPE_POINTS], b[UDSP_SCOPE_POINTS];
   unsigned seed = 1;
   int same = 0, total = 0;
@@ -179,8 +190,10 @@ static void test_matches_reference(void) {
       }
     }
   }
-  UDSP_TEST_ASSERT(same == total, "the vector scope traces what the scalar one did "
-                   "(%d of %d signals)", same, total);
+  UDSP_TEST_ASSERT(same == total,
+                   "the vector scope traces what the scalar one did "
+                   "(%d of %d signals)",
+                   same, total);
 }
 
 int main(void) {

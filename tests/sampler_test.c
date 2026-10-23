@@ -87,7 +87,8 @@ static void test_silent_voice(void) {
 
 static void test_step(void) {
   UDSP_TEST_ASSERT(udsp_sampler_step_q32(0.0, 48000, 48000) == 1ull << 32 &&
-                       udsp_sampler_step_q32(12.0, 48000, 48000) == 2ull << 32 &&
+                       udsp_sampler_step_q32(12.0, 48000, 48000) == 2ull
+                                                                        << 32 &&
                        udsp_sampler_step_q32(-12.0, 48000, 48000) == 1ull << 31,
                    "steps: unison 1, an octave up 2, down 1/2, exactly");
   uint64_t s = udsp_sampler_step_q32(0.0, 44100, 48000);

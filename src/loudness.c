@@ -51,7 +51,8 @@ static double k_weighted_sumsq(const float *mono, size_t n) {
   return sumsq;
 }
 
-float udsp_loudness_lufs_momentary(const float *mono, size_t n, float *scratch) {
+float udsp_loudness_lufs_momentary(const float *mono, size_t n,
+                                   float *scratch) {
   (void)scratch; /* one pass needs none; kept for the callers */
   if (n == 0) {
     return UDSP_LUFS_FLOOR;

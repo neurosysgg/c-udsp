@@ -69,7 +69,8 @@ void udsp_window_hann(const float *in, float *out, size_t n) {
   }
 }
 
-void udsp_fft_magnitude(const float *re, const float *im, size_t n, float *out) {
+void udsp_fft_magnitude(const float *re, const float *im, size_t n,
+                        float *out) {
   size_t i = 0;
   for (; i + UDSP_W <= n; i += UDSP_W) {
     UDSP_VF r = udsp_vload(re + i), m = udsp_vload(im + i);
@@ -98,7 +99,7 @@ static const unsigned char REV8[256] = {
 #define R2(x) x, x + 128, x + 64, x + 192
 #define R4(x) R2(x), R2(x + 32), R2(x + 16), R2(x + 48)
 #define R6(x) R4(x), R4(x + 8), R4(x + 4), R4(x + 12)
-    R6(0), R6(2), R6(1), R6(3),
+    R6(0), R6(2), R6(1), R6(3)
 #undef R2
 #undef R4
 #undef R6
@@ -148,26 +149,26 @@ static void stage2(float *restrict re, float *restrict im, size_t m, size_t h,
  * stage 2h pairs (a,c) with w2 = e^(-i pi k/2h) and (b,d) with
  * e^(-i pi (k+h)/2h) = -i w2, so its twiddle costs nothing. Half the
  * loads and stores of two radix-2 stages, the same multiplies. */
-#define RADIX4_BODY(V, LOAD, STORE)                                          \
-  /* in this order, loading each value right before its use: at most ~12   \
-   * vectors live, inside the 16 registers x86-64 has (loaded all up front \
-   * they spilled, most under AVX) */                                      \
-  V wr = LOAD(tw_re + h + k), wi = LOAD(tw_im + h + k);                     \
-  V xr = LOAD(re + a + h), xi = LOAD(im + a + h);                           \
-  V tr = xr * wr - xi * wi, ti = xr * wi + xi * wr;                         \
-  xr = LOAD(re + a), xi = LOAD(im + a);                                     \
-  V a1r = xr + tr, a1i = xi + ti, b1r = xr - tr, b1i = xi - ti;             \
-  xr = LOAD(re + a + 3 * h), xi = LOAD(im + a + 3 * h);                     \
-  tr = xr * wr - xi * wi, ti = xr * wi + xi * wr;                           \
-  xr = LOAD(re + a + 2 * h), xi = LOAD(im + a + 2 * h);                     \
-  V c1r = xr + tr, c1i = xi + ti, d1r = xr - tr, d1i = xi - ti;             \
-  wr = LOAD(tw_re + 2 * h + k), wi = LOAD(tw_im + 2 * h + k);               \
-  tr = c1r * wr - c1i * wi, ti = c1r * wi + c1i * wr;                       \
-  STORE(re + a, a1r + tr), STORE(im + a, a1i + ti);                         \
-  STORE(re + a + 2 * h, a1r - tr), STORE(im + a + 2 * h, a1i - ti);         \
-  /* d1 * w2 * -i: (x + iy) * -i = y - ix */                                \
-  tr = d1r * wr - d1i * wi, ti = d1r * wi + d1i * wr;                       \
-  STORE(re + a + h, b1r + ti), STORE(im + a + h, b1i - tr);                 \
+#define RADIX4_BODY(V, LOAD, STORE)                                            \
+  /* in this order, loading each value right before its use: at most ~12       \
+   * vectors live, inside the 16 registers x86-64 has (loaded all up front     \
+   * they spilled, most under AVX) */                                          \
+  V wr = LOAD(tw_re + h + k), wi = LOAD(tw_im + h + k);                        \
+  V xr = LOAD(re + a + h), xi = LOAD(im + a + h);                              \
+  V tr = xr * wr - xi * wi, ti = xr * wi + xi * wr;                            \
+  xr = LOAD(re + a), xi = LOAD(im + a);                                        \
+  V a1r = xr + tr, a1i = xi + ti, b1r = xr - tr, b1i = xi - ti;                \
+  xr = LOAD(re + a + 3 * h), xi = LOAD(im + a + 3 * h);                        \
+  tr = xr * wr - xi * wi, ti = xr * wi + xi * wr;                              \
+  xr = LOAD(re + a + 2 * h), xi = LOAD(im + a + 2 * h);                        \
+  V c1r = xr + tr, c1i = xi + ti, d1r = xr - tr, d1i = xi - ti;                \
+  wr = LOAD(tw_re + 2 * h + k), wi = LOAD(tw_im + 2 * h + k);                  \
+  tr = c1r * wr - c1i * wi, ti = c1r * wi + c1i * wr;                          \
+  STORE(re + a, a1r + tr), STORE(im + a, a1i + ti);                            \
+  STORE(re + a + 2 * h, a1r - tr), STORE(im + a + 2 * h, a1i - ti);            \
+  /* d1 * w2 * -i: (x + iy) * -i = y - ix */                                   \
+  tr = d1r * wr - d1i * wi, ti = d1r * wi + d1i * wr;                          \
+  STORE(re + a + h, b1r + ti), STORE(im + a + h, b1i - tr);                    \
   STORE(re + a + 3 * h, b1r - ti), STORE(im + a + 3 * h, b1i + tr);
 
 static float sload(const float *p) { return *p; }
@@ -229,7 +230,8 @@ static void butterflies(float *restrict re, float *restrict im, size_t m,
   }
 }
 
-void udsp_fft_forward_table(float *re, float *im, size_t n, const float *table) {
+void udsp_fft_forward_table(float *re, float *im, size_t n,
+                            const float *table) {
   if (n < 2) {
     return;
   }
@@ -293,10 +295,9 @@ first_pass_real(const float *restrict in, const float *restrict w,
       UDSP_V4 t1 = UDSP_SHUF4(y[0], y[1], 2, 6, 3, 7);
       UDSP_V4 t2 = UDSP_SHUF4(y[2], y[3], 0, 4, 1, 5);
       UDSP_V4 t3 = UDSP_SHUF4(y[2], y[3], 2, 6, 3, 7);
-      UDSP_V4 g[4] = {UDSP_SHUF4(t0, t2, 0, 1, 4, 5),
-                      UDSP_SHUF4(t0, t2, 2, 3, 6, 7),
-                      UDSP_SHUF4(t1, t3, 0, 1, 4, 5),
-                      UDSP_SHUF4(t1, t3, 2, 3, 6, 7)};
+      UDSP_V4 g[4] = {
+          UDSP_SHUF4(t0, t2, 0, 1, 4, 5), UDSP_SHUF4(t0, t2, 2, 3, 6, 7),
+          UDSP_SHUF4(t1, t3, 0, 1, 4, 5), UDSP_SHUF4(t1, t3, 2, 3, 6, 7)};
       UDSP_UNROLL
       for (int j = 0; j < 4; j++) {
         udsp_v4store(outs[c] + 4 * bitrev(r + (size_t)j, bits - 2), g[j]);
@@ -363,7 +364,8 @@ fft_real(const float *in, const float *w, float *re, float *im, size_t n,
   for (; 2 * (k + UDSP_W - 1) < m; k += UDSP_W) {
     size_t d = m - k - (UDSP_W - 1);
     UDSP_VF zr = udsp_vload(re + k), zi = udsp_vload(im + k);
-    UDSP_VF yr = udsp_vrev(udsp_vload(re + d)), yi = udsp_vrev(udsp_vload(im + d));
+    UDSP_VF yr = udsp_vrev(udsp_vload(re + d)),
+            yi = udsp_vrev(udsp_vload(im + d));
     UDSP_VF er = (zr + yr) * 0.5f, ei = (zi - yi) * 0.5f;
     UDSP_VF or_ = (zi + yi) * 0.5f, oi = (yr - zr) * 0.5f;
     UDSP_VF c = udsp_vload(wr + k), sn = udsp_vload(wi + k);

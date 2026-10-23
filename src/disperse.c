@@ -22,9 +22,9 @@ static float fan(unsigned i) {
 
 void udsp_disperse_set(UDSP_DISPERSE *d, float amount, float hz, float pinch,
                        float spread, unsigned rate) {
-  amount = amount < 0.0f ? 0.0f
-           : amount > (float)UDSP_DISPERSE_MAX ? (float)UDSP_DISPERSE_MAX
-                                               : amount;
+  amount = amount<0.0f ? 0.0f : amount>(float) UDSP_DISPERSE_MAX
+               ? (float)UDSP_DISPERSE_MAX
+               : amount;
   pinch = pinch < 0.1f ? 0.1f : (pinch > 40.0f ? 40.0f : pinch);
   spread = spread < 0.0f ? 0.0f : (spread > 8.0f ? 8.0f : spread);
   d->whole = (int)amount;

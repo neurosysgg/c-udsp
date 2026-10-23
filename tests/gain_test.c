@@ -7,15 +7,17 @@
 static void test_unity_gain_is_a_no_op(void) {
   float buf[4] = {0.1f, -0.5f, 1.0f, -1.0f};
   udsp_gain_apply(buf, 4, 1.0f);
-  UDSP_TEST_ASSERT(buf[0] == 0.1f && buf[1] == -0.5f && buf[2] == 1.0f && buf[3] == -1.0f,
-                  "gain=1.0 leaves every sample unchanged");
+  UDSP_TEST_ASSERT(buf[0] == 0.1f && buf[1] == -0.5f && buf[2] == 1.0f &&
+                       buf[3] == -1.0f,
+                   "gain=1.0 leaves every sample unchanged");
 }
 
 static void test_zero_gain_silences(void) {
   float buf[4] = {0.1f, -0.5f, 1.0f, -1.0f};
   udsp_gain_apply(buf, 4, 0.0f);
-  UDSP_TEST_ASSERT(buf[0] == 0.0f && buf[1] == 0.0f && buf[2] == 0.0f && buf[3] == 0.0f,
-                  "gain=0.0 silences every sample");
+  UDSP_TEST_ASSERT(buf[0] == 0.0f && buf[1] == 0.0f && buf[2] == 0.0f &&
+                       buf[3] == 0.0f,
+                   "gain=0.0 silences every sample");
 }
 
 static void test_half_gain_halves_every_sample(void) {
@@ -33,7 +35,8 @@ static void test_channel_agnostic_flat_stream(void) {
   float buf[6] = {1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f};
   udsp_gain_apply(buf, 6, 0.25f);
   for (int i = 0; i < 6; i++) {
-    UDSP_TEST_ASSERT(buf[i] == 0.25f, "sample %d scaled the same regardless of channel", i);
+    UDSP_TEST_ASSERT(buf[i] == 0.25f,
+                     "sample %d scaled the same regardless of channel", i);
   }
 }
 
@@ -69,12 +72,14 @@ static void test_pan_laws(void) {
   udsp_pan_gains(0.0f, UDSP_PAN_BALANCE, &l, &r);
   UDSP_TEST_ASSERT(l == 1.0f && r == 1.0f, "balance: unity in the centre");
   udsp_pan_gains(1.0f, UDSP_PAN_BALANCE, &l, &r);
-  UDSP_TEST_ASSERT(fabsf(l) < 1e-6f && r == 1.0f, "balance: hard right silences the left");
+  UDSP_TEST_ASSERT(fabsf(l) < 1e-6f && r == 1.0f,
+                   "balance: hard right silences the left");
   udsp_pan_gains(-0.5f, UDSP_PAN_BALANCE, &l, &r);
   UDSP_TEST_ASSERT(l == 1.0f && fabsf(r - 0.70710678f) < 1e-6f,
                    "balance: half left, the right at -3 dB");
   udsp_pan_gains(0.0f, UDSP_PAN_EQUAL_POWER, &l, &r);
-  UDSP_TEST_ASSERT(fabsf(l - 0.70710678f) < 1e-6f && fabsf(r - 0.70710678f) < 1e-6f,
+  UDSP_TEST_ASSERT(fabsf(l - 0.70710678f) < 1e-6f &&
+                       fabsf(r - 0.70710678f) < 1e-6f,
                    "equal power: -3 dB each in the centre");
   udsp_pan_gains(-3.0f, UDSP_PAN_EQUAL_POWER, &l, &r);
   UDSP_TEST_ASSERT(l == 1.0f && fabsf(r) < 1e-6f, "a pan past -1 is -1");

@@ -12,7 +12,8 @@ static void test_ballistics_time_constant(void) {
   udsp_ballistics(level, target, 2, 0.1f, 0.1f, 0.5f);
   UDSP_TEST_ASSERT(near(level[0], 1.0f - expf(-1.0f)),
                    "rising covers 1 - 1/e of the gap in one attack time "
-                   "constant (%f)", level[0]);
+                   "constant (%f)",
+                   level[0]);
   UDSP_TEST_ASSERT(near(level[1], expf(-0.2f)),
                    "falling uses the release time constant (%f)", level[1]);
 }
@@ -25,7 +26,8 @@ static void test_ballistics_frame_rate_independent(void) {
   }
   UDSP_TEST_ASSERT(near(a, b),
                    "one 100 ms step lands where four 25 ms steps do "
-                   "(%f vs %f)", a, b);
+                   "(%f vs %f)",
+                   a, b);
 }
 
 static void test_ballistics_instant(void) {
@@ -48,8 +50,8 @@ static void test_peak_hold(void) {
   }
   UDSP_TEST_ASSERT(near(peak, -10.0f), "it holds for hold_s (%f)", peak);
   udsp_peak_hold(&peak, &age, &level, 1, 0.1f, 0.5f, 20.0f);
-  UDSP_TEST_ASSERT(near(peak, -12.0f),
-                   "then falls fall_per_s per second (%f)", peak);
+  UDSP_TEST_ASSERT(near(peak, -12.0f), "then falls fall_per_s per second (%f)",
+                   peak);
   for (int i = 0; i < 50; i++) {
     udsp_peak_hold(&peak, &age, &level, 1, 0.1f, 0.5f, 20.0f);
   }

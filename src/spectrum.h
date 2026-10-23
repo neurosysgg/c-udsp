@@ -97,7 +97,7 @@ void udsp_spectrum_bars(const float *mono_tail, int sample_rate,
  * 2n table floats, so a smaller plan touches (and keeps in cache) only
  * that much */
 typedef struct UDSP_SPECTRUM_PLAN {
-  float window[UDSP_SPECTRUM_MAX_N]; /* Hann, times the bars' 2/n */
+  float window[UDSP_SPECTRUM_MAX_N];  /* Hann, times the bars' 2/n */
   float fft[2 * UDSP_SPECTRUM_MAX_N]; /* UDSP_FFT_TABLE_FLOATS(n) used */
   int bin0[UDSP_SPECTRUM_MAX_BARS], bin1[UDSP_SPECTRUM_MAX_BARS];
   int n;

@@ -64,13 +64,13 @@ static void test_noise_and_limits(void) {
   float ap;
   float hz = detect(&ap);
   UDSP_TEST_ASSERT(hz == 0.0f && ap == 1.0f, "noise: no pitch");
-  UDSP_TEST_ASSERT(udsp_yin(x, 1000, RATE, 20.0f, 4200.0f, 0.15f, scratch,
-                            NULL) == 0.0f,
-                   "too short for the lowest period: 0");
+  UDSP_TEST_ASSERT(
+      udsp_yin(x, 1000, RATE, 20.0f, 4200.0f, 0.15f, scratch, NULL) == 0.0f,
+      "too short for the lowest period: 0");
   float c;
   UDSP_TEST_ASSERT(udsp_yin_note(440.0f, &c) == 69 && fabsf(c) < 1e-3f &&
-                       udsp_yin_note(452.0f, &c) == 69 && c > 46.0f && c < 47.0f &&
-                       udsp_yin_note(0.0f, &c) == -1,
+                       udsp_yin_note(452.0f, &c) == 69 && c > 46.0f &&
+                       c < 47.0f && udsp_yin_note(0.0f, &c) == -1,
                    "notes: 440 is A4 (69), 452 its +46.6 cents, 0 none");
 }
 

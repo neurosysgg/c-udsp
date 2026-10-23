@@ -38,7 +38,8 @@ static void test_level(void) {
     float e = fabsf(20.0f * log10f(amp()));
     worst = e > worst ? e : worst;
   }
-  UDSP_TEST_ASSERT(worst < 0.01f, "64 stages: every sine's level kept (%.4f dB)",
+  UDSP_TEST_ASSERT(worst < 0.01f,
+                   "64 stages: every sine's level kept (%.4f dB)",
                    (double)worst);
 }
 
@@ -67,10 +68,11 @@ static float delay_at(float hz, float amount) {
 static void test_smear(void) {
   const float at = delay_at(1000.0f, 32), far = delay_at(8000.0f, 32);
   const float none = delay_at(1000.0f, 0);
-  UDSP_TEST_ASSERT(at > 10.0f * (far > 1.0f ? far : 1.0f) && fabsf(none) < 0.5f,
-                   "32 stages at 1 kHz: the centre %.0f frames late, 8 kHz %.1f "
-                   "(none: %.2f)",
-                   (double)at, (double)far, (double)none);
+  UDSP_TEST_ASSERT(
+      at > 10.0f * (far > 1.0f ? far : 1.0f) && fabsf(none) < 0.5f,
+      "32 stages at 1 kHz: the centre %.0f frames late, 8 kHz %.1f "
+      "(none: %.2f)",
+      (double)at, (double)far, (double)none);
   const float more = delay_at(1000.0f, 64);
   UDSP_TEST_ASSERT(fabsf(more - 2.0f * at) < 0.05f * at,
                    "twice the stages: twice the delay (%.0f)", (double)more);

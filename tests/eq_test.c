@@ -10,8 +10,8 @@
 
 /* a sine at hz through the band, both channels: its amplitude once it
  * settles (left, from its RMS), and whether right came out the same */
-static float gain_at(UDSP_EQ_SHAPE shape, float fc, float q, float db,
-                     float hz, int *same) {
+static float gain_at(UDSP_EQ_SHAPE shape, float fc, float q, float db, float hz,
+                     int *same) {
   UDSP_EQ_BAND b;
   udsp_eq_reset(&b);
   udsp_eq_set(&b, shape, fc, q, db, RATE);
@@ -83,8 +83,8 @@ static void test_shapes(void) {
   check(UDSP_EQ_LOW_CUT_12, 1000.0f, 4.0f, 0.0f, 1000.0f, 12.04f, 0.05f,
         "low cut 12 at Q 4: +12 at its corner");
   int same;
-  UDSP_TEST_ASSERT(gain_at(UDSP_EQ_NOTCH, 1000.0f, 2.0f, 0.0f, 1000.0f,
-                           &same) < 1e-3f,
+  UDSP_TEST_ASSERT(gain_at(UDSP_EQ_NOTCH, 1000.0f, 2.0f, 0.0f, 1000.0f, &same) <
+                       1e-3f,
                    "the notch takes its frequency out");
 }
 
@@ -159,8 +159,8 @@ static void test_blocks(void) {
 static void test_ramp(void) {
   static float x[2 * 4800], y[2 * 4800];
   for (int i = 0; i < 4800; i++) {
-    x[2 * i] = x[2 * i + 1] = 0.25f * (float)sin(6.283185307179586 * 100.0 *
-                                                 i / RATE);
+    x[2 * i] = x[2 * i + 1] =
+        0.25f * (float)sin(6.283185307179586 * 100.0 * i / RATE);
   }
   memcpy(y, x, sizeof(x));
   UDSP_EQ_BAND a, b, to;

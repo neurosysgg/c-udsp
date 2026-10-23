@@ -15,7 +15,10 @@ static void test_init_is_silent(void) {
   udsp_spectrogram_init(&sg);
   for (int c = 0; c < UDSP_SPECTROGRAM_COLS; c++) {
     for (int b = 0; b < UDSP_SPECTROGRAM_BINS; b++) {
-      UDSP_TEST_ASSERT(sg.intensity[c][b] == 0, "a freshly-initialized spectrogram is all-zero (col %d bin %d)", c, b);
+      UDSP_TEST_ASSERT(
+          sg.intensity[c][b] == 0,
+          "a freshly-initialized spectrogram is all-zero (col %d bin %d)", c,
+          b);
     }
   }
 }
@@ -38,15 +41,20 @@ static void test_push_scrolls_and_appends(void) {
       any_nonzero_in_last_col = 1;
     }
   }
-  UDSP_TEST_ASSERT(any_nonzero_in_last_col, "the newest column (rightmost) holds the just-pushed spectrum");
+  UDSP_TEST_ASSERT(
+      any_nonzero_in_last_col,
+      "the newest column (rightmost) holds the just-pushed spectrum");
 
   unsigned char last_col_snapshot[UDSP_SPECTROGRAM_BINS];
-  memcpy(last_col_snapshot, sg.intensity[UDSP_SPECTROGRAM_COLS - 1], sizeof(last_col_snapshot));
+  memcpy(last_col_snapshot, sg.intensity[UDSP_SPECTROGRAM_COLS - 1],
+         sizeof(last_col_snapshot));
 
   udsp_spectrogram_push(&sg, tone, 44100, re, im);
-  int scrolled = memcmp(sg.intensity[UDSP_SPECTROGRAM_COLS - 2], last_col_snapshot,
-                        sizeof(last_col_snapshot)) == 0;
-  UDSP_TEST_ASSERT(scrolled, "a second push scrolls the first column's data one step toward index 0");
+  int scrolled = memcmp(sg.intensity[UDSP_SPECTROGRAM_COLS - 2],
+                        last_col_snapshot, sizeof(last_col_snapshot)) == 0;
+  UDSP_TEST_ASSERT(
+      scrolled,
+      "a second push scrolls the first column's data one step toward index 0");
 }
 
 int main(void) {

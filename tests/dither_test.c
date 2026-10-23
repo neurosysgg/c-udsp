@@ -27,10 +27,9 @@ static void test_noise(void) {
     middle += fabsf(buf[i]) < step * 0.5f;
   }
   const double share = (double)middle / N;
-  UDSP_TEST_ASSERT(out == 0 && fabs(sum / N) < step * 0.01 && share > 0.74 &&
-                       share < 0.76,
-                   "±1 step, centred, triangular (%.4f in the middle half)",
-                   share);
+  UDSP_TEST_ASSERT(
+      out == 0 && fabs(sum / N) < step * 0.01 && share > 0.74 && share < 0.76,
+      "±1 step, centred, triangular (%.4f in the middle half)", share);
   UDSP_DITHER e;
   udsp_dither_init(&e, 12345);
   float again[64] = {0};

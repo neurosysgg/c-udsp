@@ -25,8 +25,8 @@
 typedef struct {
   unsigned rate;
   UDSP_LINE line[UDSP_FDN_N];
-  float len[UDSP_FDN_N]; /* frames, now */
-  float g[UDSP_FDN_N];   /* per pass */
+  float len[UDSP_FDN_N];      /* frames, now */
+  float g[UDSP_FDN_N];        /* per pass */
   float lp[UDSP_FDN_N], damp; /* the low-passes' states, their pole */
   float depth;                /* the reads' swing, frames */
   float rot_c, rot_s, mc, ms; /* the modulation: a rotation a frame */

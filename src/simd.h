@@ -54,7 +54,7 @@ static inline void udsp_v4store(float *p, UDSP_V4 v) {
 #define UDSP_SHUF4(a, b, i, j, k, l) __builtin_shufflevector(a, b, i, j, k, l)
 #else
 typedef int UDSP_V4I __attribute__((vector_size(16)));
-#define UDSP_SHUF4(a, b, i, j, k, l)                                          \
+#define UDSP_SHUF4(a, b, i, j, k, l)                                           \
   __builtin_shuffle(a, b, (UDSP_V4I){i, j, k, l})
 #endif
 
@@ -66,9 +66,7 @@ static inline UDSP_VF udsp_vload(const float *p) {
 static inline void udsp_vstore(float *p, UDSP_VF v) {
   memcpy(p, &v, sizeof(v));
 }
-static inline UDSP_VF udsp_vsplat(float x) {
-  return (UDSP_VF){0} + x;
-}
+static inline UDSP_VF udsp_vsplat(float x) { return (UDSP_VF){0} + x; }
 /* a > b ? a : b per lane, and |a|: the target's own instructions where it
  * has them. The generic form (a compare and a blend: vector ?: is C++-only
  * in gcc) is right everywhere, but gcc doesn't fold it back into maxps and

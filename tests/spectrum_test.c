@@ -18,7 +18,8 @@ static void test_silence_is_floor_every_bar(void) {
   float bars[UDSP_SPECTRUM_TEST_BARS];
   udsp_spectrum_bars(silence, 44100, re, im, bars, UDSP_SPECTRUM_TEST_BARS);
   for (int i = 0; i < UDSP_SPECTRUM_TEST_BARS; i++) {
-    UDSP_TEST_ASSERT(bars[i] == UDSP_DBFS_FLOOR, "silence reads the dBFS floor in bar %d", i);
+    UDSP_TEST_ASSERT(bars[i] == UDSP_DBFS_FLOOR,
+                     "silence reads the dBFS floor in bar %d", i);
   }
 }
 
@@ -45,8 +46,12 @@ static void test_tone_peaks_in_expected_bar(void) {
    * log(1000/20)/log(22050/20) * 28 ~= bar 15.6, so 15 -- this pins the
    * exact placement so a future change to the log-spacing math (or the
    * bin/frequency conversion) that shifts it gets caught immediately. */
-  UDSP_TEST_ASSERT(loudest == 15, "a 1kHz tone's loudest bar lands at bar 15/28 (got %d)", loudest);
-  UDSP_TEST_ASSERT(bars[loudest] > -20.0f, "the loudest bar reads well above the floor for a full-scale tone");
+  UDSP_TEST_ASSERT(loudest == 15,
+                   "a 1kHz tone's loudest bar lands at bar 15/28 (got %d)",
+                   loudest);
+  UDSP_TEST_ASSERT(
+      bars[loudest] > -20.0f,
+      "the loudest bar reads well above the floor for a full-scale tone");
 }
 
 static void test_bin_count_is_flexible(void) {
@@ -63,7 +68,9 @@ static void test_bin_count_is_flexible(void) {
       any_above_floor = 1;
     }
   }
-  UDSP_TEST_ASSERT(any_above_floor, "udsp_spectrum_bars() works with a different n_bars (spectrogram's bin count)");
+  UDSP_TEST_ASSERT(
+      any_above_floor,
+      "udsp_spectrum_bars() works with a different n_bars (spectrogram's bin count)");
 }
 
 /* the planned path gives the old path's bars: noise and tones, several
@@ -94,10 +101,11 @@ static void test_planned_matches_bars(void) {
           float d = fabsf(want[i] - got[i]);
           worst = d > worst ? d : worst;
         }
-        UDSP_TEST_ASSERT(worst < 0.01f,
-                         "planned bars = udsp_spectrum_bars(): %s, %d Hz, %d bars "
-                         "(worst %.4f dB)",
-                         kind ? "tone" : "noise", RATES[r], BARS[b], worst);
+        UDSP_TEST_ASSERT(
+            worst < 0.01f,
+            "planned bars = udsp_spectrum_bars(): %s, %d Hz, %d bars "
+            "(worst %.4f dB)",
+            kind ? "tone" : "noise", RATES[r], BARS[b], worst);
       }
     }
   }
@@ -110,7 +118,8 @@ static void test_plan_edges(void) {
   udsp_spectrum_plan(&plan, UDSP_FFT_N, 44100, 0);
   UDSP_TEST_ASSERT(plan.n_bars == 1, "a plan for 0 bars makes 1");
   udsp_spectrum_plan(&plan, UDSP_FFT_N, 44100, 1 << 20);
-  UDSP_TEST_ASSERT(plan.n_bars == UDSP_SPECTRUM_MAX_BARS, "a plan's bars are capped");
+  UDSP_TEST_ASSERT(plan.n_bars == UDSP_SPECTRUM_MAX_BARS,
+                   "a plan's bars are capped");
   for (int i = 0; i < UDSP_FFT_N; i++) {
     sig[i] = 1.0f;
   }
@@ -126,13 +135,16 @@ static void test_plan_edges(void) {
   udsp_spectrum_plan(&plan, UDSP_FFT_N, 48000, 28);
   const float *p = udsp_spectrum_power(&plan, sig, scratch);
   float db = 10.0f * log10f(p[64]);
-  UDSP_TEST_ASSERT(db > -6.5f && db < -5.5f, "a full-scale sine's bin reads ~-6 dB (%.2f)", db);
+  UDSP_TEST_ASSERT(db > -6.5f && db < -5.5f,
+                   "a full-scale sine's bin reads ~-6 dB (%.2f)", db);
 
   /* the FFT size is the plan's */
   udsp_spectrum_plan(&plan, 1000, 48000, 28);
-  UDSP_TEST_ASSERT(plan.n == UDSP_FFT_N, "a size that isn't a power of two gets UDSP_FFT_N");
+  UDSP_TEST_ASSERT(plan.n == UDSP_FFT_N,
+                   "a size that isn't a power of two gets UDSP_FFT_N");
   udsp_spectrum_plan(&plan, 1 << 20, 48000, 28);
-  UDSP_TEST_ASSERT(plan.n == UDSP_FFT_N, "a size over the maximum gets UDSP_FFT_N");
+  UDSP_TEST_ASSERT(plan.n == UDSP_FFT_N,
+                   "a size over the maximum gets UDSP_FFT_N");
 }
 
 /* short and long plans agree on where a tone is; each one's bin reads
@@ -158,9 +170,11 @@ static void test_plan_sizes(void) {
     for (int i = 1; i < 28; i++) {
       got = a[i] > a[got] ? i : got;
     }
-    UDSP_TEST_ASSERT(sizes[s] < 256 || (got == want && fabsf(a[got] - b[want]) < 1.5f),
-                     "n=%d: a 1 kHz tone's loudest bar is the 8192-point plan's "
-                     "(bar %d, %.1f vs %.1f dB)", sizes[s], got, a[got], b[want]);
+    UDSP_TEST_ASSERT(
+        sizes[s] < 256 || (got == want && fabsf(a[got] - b[want]) < 1.5f),
+        "n=%d: a 1 kHz tone's loudest bar is the 8192-point plan's "
+        "(bar %d, %.1f vs %.1f dB)",
+        sizes[s], got, a[got], b[want]);
   }
 }
 

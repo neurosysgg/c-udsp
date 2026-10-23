@@ -74,8 +74,7 @@ void udsp_eq_set(UDSP_EQ_BAND *b, UDSP_EQ_SHAPE shape, float hz, float q,
     stage(&b->st[0], g / sqrtf(a), k, 1.0f, k * (a - 1.0f), a * a - 1.0f);
     break;
   case UDSP_EQ_HIGH_SHELF:
-    stage(&b->st[0], g * sqrtf(a), k, a * a, k * (1.0f - a) * a,
-          1.0f - a * a);
+    stage(&b->st[0], g * sqrtf(a), k, a * a, k * (1.0f - a) * a, 1.0f - a * a);
     break;
   case UDSP_EQ_NOTCH:
     stage(&b->st[0], g, k, 1.0f, -k, 0.0f);

@@ -55,53 +55,52 @@ __attribute__((noinline)) static float ss_float(const float *x, size_t n) {
   return s;
 }
 
-#define SS_LANES(L)                                                          \
-  __attribute__((noinline)) static float ss_lanes##L(const float *x,        \
-                                                      size_t n) {            \
-    float acc[L] = {0};                                                      \
-    size_t i = 0;                                                            \
-    for (; i + L <= n; i += L) {                                             \
-      for (int j = 0; j < L; j++) {                                          \
-        acc[j] += x[i + j] * x[i + j];                                       \
-      }                                                                      \
-    }                                                                        \
-    float s = 0;                                                             \
-    for (int j = 0; j < L; j++) {                                            \
-      s += acc[j];                                                           \
-    }                                                                        \
-    for (; i < n; i++) {                                                     \
-      s += x[i] * x[i];                                                      \
-    }                                                                        \
-    return s;                                                                \
+#define SS_LANES(L)                                                            \
+  __attribute__((noinline)) static float ss_lanes##L(const float *x,           \
+                                                     size_t n) {               \
+    float acc[L] = {0};                                                        \
+    size_t i = 0;                                                              \
+    for (; i + L <= n; i += L) {                                               \
+      for (int j = 0; j < L; j++) {                                            \
+        acc[j] += x[i + j] * x[i + j];                                         \
+      }                                                                        \
+    }                                                                          \
+    float s = 0;                                                               \
+    for (int j = 0; j < L; j++) {                                              \
+      s += acc[j];                                                             \
+    }                                                                          \
+    for (; i < n; i++) {                                                       \
+      s += x[i] * x[i];                                                        \
+    }                                                                          \
+    return s;                                                                  \
   }
 SS_LANES(4)
 SS_LANES(8)
 SS_LANES(16)
 SS_LANES(32)
 
-#define SS_VEC(A)                                                            \
-  __attribute__((noinline)) static float ss_vec##A(const float *x,          \
-                                                    size_t n) {              \
-    v8f acc[A];                                                              \
-    memset(acc, 0, sizeof(acc));                                             \
-    size_t i = 0;                                                            \
-    for (; i + 8 * A <= n; i += 8 * A) {                                     \
-      for (int a = 0; a < A; a++) {                                          \
-        v8f v = *(const v8f *)(x + i + 8 * a);                               \
-        acc[a] += v * v;                                                     \
-      }                                                                      \
-    }                                                                        \
-    for (int a = 1; a < A; a++) {                                            \
-      acc[0] += acc[a];                                                      \
-    }                                                                        \
-    float s = 0;                                                             \
-    for (int j = 0; j < 8; j++) {                                            \
-      s += acc[0][j];                                                        \
-    }                                                                        \
-    for (; i < n; i++) {                                                     \
-      s += x[i] * x[i];                                                      \
-    }                                                                        \
-    return s;                                                                \
+#define SS_VEC(A)                                                              \
+  __attribute__((noinline)) static float ss_vec##A(const float *x, size_t n) { \
+    v8f acc[A];                                                                \
+    memset(acc, 0, sizeof(acc));                                               \
+    size_t i = 0;                                                              \
+    for (; i + 8 * A <= n; i += 8 * A) {                                       \
+      for (int a = 0; a < A; a++) {                                            \
+        v8f v = *(const v8f *)(x + i + 8 * a);                                 \
+        acc[a] += v * v;                                                       \
+      }                                                                        \
+    }                                                                          \
+    for (int a = 1; a < A; a++) {                                              \
+      acc[0] += acc[a];                                                        \
+    }                                                                          \
+    float s = 0;                                                               \
+    for (int j = 0; j < 8; j++) {                                              \
+      s += acc[0][j];                                                          \
+    }                                                                          \
+    for (; i < n; i++) {                                                       \
+      s += x[i] * x[i];                                                        \
+    }                                                                          \
+    return s;                                                                  \
   }
 SS_VEC(1)
 SS_VEC(2)
@@ -120,57 +119,56 @@ __attribute__((noinline)) static float mx_plain(const float *x, size_t n) {
   return m;
 }
 
-#define MX_LANES(L)                                                          \
-  __attribute__((noinline)) static float mx_lanes##L(const float *x,        \
-                                                      size_t n) {            \
-    float acc[L] = {0};                                                      \
-    size_t i = 0;                                                            \
-    for (; i + L <= n; i += L) {                                             \
-      for (int j = 0; j < L; j++) {                                          \
-        float a = fabsf(x[i + j]);                                           \
-        acc[j] = a > acc[j] ? a : acc[j];                                    \
-      }                                                                      \
-    }                                                                        \
-    float m = 0;                                                             \
-    for (int j = 0; j < L; j++) {                                            \
-      m = acc[j] > m ? acc[j] : m;                                           \
-    }                                                                        \
-    for (; i < n; i++) {                                                     \
-      float a = fabsf(x[i]);                                                 \
-      m = a > m ? a : m;                                                     \
-    }                                                                        \
-    return m;                                                                \
+#define MX_LANES(L)                                                            \
+  __attribute__((noinline)) static float mx_lanes##L(const float *x,           \
+                                                     size_t n) {               \
+    float acc[L] = {0};                                                        \
+    size_t i = 0;                                                              \
+    for (; i + L <= n; i += L) {                                               \
+      for (int j = 0; j < L; j++) {                                            \
+        float a = fabsf(x[i + j]);                                             \
+        acc[j] = a > acc[j] ? a : acc[j];                                      \
+      }                                                                        \
+    }                                                                          \
+    float m = 0;                                                               \
+    for (int j = 0; j < L; j++) {                                              \
+      m = acc[j] > m ? acc[j] : m;                                             \
+    }                                                                          \
+    for (; i < n; i++) {                                                       \
+      float a = fabsf(x[i]);                                                   \
+      m = a > m ? a : m;                                                       \
+    }                                                                          \
+    return m;                                                                  \
   }
 MX_LANES(8)
 MX_LANES(16)
 MX_LANES(32)
 
-#define MX_VEC(A)                                                            \
-  __attribute__((noinline)) static float mx_vec##A(const float *x,          \
-                                                    size_t n) {              \
-    v8f acc[A];                                                              \
-    memset(acc, 0, sizeof(acc));                                             \
-    const v8i abs = {~0u >> 1, ~0u >> 1, ~0u >> 1, ~0u >> 1,                 \
-                     ~0u >> 1, ~0u >> 1, ~0u >> 1, ~0u >> 1};                \
-    size_t i = 0;                                                            \
-    for (; i + 8 * A <= n; i += 8 * A) {                                     \
-      for (int a = 0; a < A; a++) {                                          \
-        v8f v = *(const v8f *)(x + i + 8 * a);                               \
-        acc[a] = vmax((v8f)((v8i)v & abs), acc[a]);                          \
-      }                                                                      \
-    }                                                                        \
-    for (int a = 1; a < A; a++) {                                            \
-      acc[0] = vmax(acc[a], acc[0]);                                         \
-    }                                                                        \
-    float m = 0;                                                             \
-    for (int j = 0; j < 8; j++) {                                            \
-      m = acc[0][j] > m ? acc[0][j] : m;                                     \
-    }                                                                        \
-    for (; i < n; i++) {                                                     \
-      float a = fabsf(x[i]);                                                 \
-      m = a > m ? a : m;                                                     \
-    }                                                                        \
-    return m;                                                                \
+#define MX_VEC(A)                                                              \
+  __attribute__((noinline)) static float mx_vec##A(const float *x, size_t n) { \
+    v8f acc[A];                                                                \
+    memset(acc, 0, sizeof(acc));                                               \
+    const v8i abs = {~0u >> 1, ~0u >> 1, ~0u >> 1, ~0u >> 1,                   \
+                     ~0u >> 1, ~0u >> 1, ~0u >> 1, ~0u >> 1};                  \
+    size_t i = 0;                                                              \
+    for (; i + 8 * A <= n; i += 8 * A) {                                       \
+      for (int a = 0; a < A; a++) {                                            \
+        v8f v = *(const v8f *)(x + i + 8 * a);                                 \
+        acc[a] = vmax((v8f)((v8i)v & abs), acc[a]);                            \
+      }                                                                        \
+    }                                                                          \
+    for (int a = 1; a < A; a++) {                                              \
+      acc[0] = vmax(acc[a], acc[0]);                                           \
+    }                                                                          \
+    float m = 0;                                                               \
+    for (int j = 0; j < 8; j++) {                                              \
+      m = acc[0][j] > m ? acc[0][j] : m;                                       \
+    }                                                                          \
+    for (; i < n; i++) {                                                       \
+      float a = fabsf(x[i]);                                                   \
+      m = a > m ? a : m;                                                       \
+    }                                                                          \
+    return m;                                                                  \
   }
 MX_VEC(1)
 MX_VEC(2)
@@ -182,14 +180,14 @@ typedef struct {
 } SHAPE;
 
 static const SHAPE SHAPES[] = {
-    {"ss_double", ss_double}, {"ss_float", ss_float},
-    {"ss_lanes4", ss_lanes4}, {"ss_lanes8", ss_lanes8},
+    {"ss_double", ss_double},   {"ss_float", ss_float},
+    {"ss_lanes4", ss_lanes4},   {"ss_lanes8", ss_lanes8},
     {"ss_lanes16", ss_lanes16}, {"ss_lanes32", ss_lanes32},
-    {"ss_vec1", ss_vec1},     {"ss_vec2", ss_vec2},
-    {"ss_vec4", ss_vec4},     {"mx_plain", mx_plain},
-    {"mx_lanes8", mx_lanes8}, {"mx_lanes16", mx_lanes16},
+    {"ss_vec1", ss_vec1},       {"ss_vec2", ss_vec2},
+    {"ss_vec4", ss_vec4},       {"mx_plain", mx_plain},
+    {"mx_lanes8", mx_lanes8},   {"mx_lanes16", mx_lanes16},
     {"mx_lanes32", mx_lanes32}, {"mx_vec1", mx_vec1},
-    {"mx_vec2", mx_vec2},     {"mx_vec4", mx_vec4},
+    {"mx_vec2", mx_vec2},       {"mx_vec4", mx_vec4},
 };
 
 static int cmp(const void *a, const void *b) {
@@ -232,8 +230,9 @@ int main(int argc, char **argv) {
         per[r] = (now_ns() - t0) / (double)iters;
       }
       qsort(per, (size_t)reps, sizeof(double), cmp);
-      printf("%s/%s\t%zu\t%.1f\t%.1f\t%.4f\n", SHAPES[k].name, n > 4096 ? "big" : "l1", n, per[reps / 2],
-             per[0], per[reps / 2] / (double)n);
+      printf("%s/%s\t%zu\t%.1f\t%.1f\t%.4f\n", SHAPES[k].name,
+             n > 4096 ? "big" : "l1", n, per[reps / 2], per[0],
+             per[reps / 2] / (double)n);
     }
   }
   return 0;

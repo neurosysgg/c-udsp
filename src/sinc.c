@@ -88,8 +88,8 @@ static double my_sqrt(double x) {
 }
 
 /* tap k of a row for an output at fraction f (0..1) past an input */
-static double tap(double f, uint32_t k, uint32_t taps, double fcut,
-                  double beta, double i0_beta) {
+static double tap(double f, uint32_t k, uint32_t taps, double fcut, double beta,
+                  double i0_beta) {
   double half = taps * 0.5;
   double x = f + half - 1.0 - (double)k;
   double u = x / half;
@@ -239,10 +239,10 @@ void udsp_sinc_run(const UDSP_SINC *s, const float *in, int64_t in_first,
       a = s->table + (size_t)ph * s->taps;
     }
     int64_t j0 = i - half + 1;
-    int inside = j0 >= in_first &&
-                 j0 + (int64_t)s->taps <= in_first + (int64_t)in_n;
-    out[o] = dot(a, b, mu, inside ? in + (j0 - in_first) : NULL, in,
-                 in_first, in_n, j0, s->taps);
+    int inside =
+        j0 >= in_first && j0 + (int64_t)s->taps <= in_first + (int64_t)in_n;
+    out[o] = dot(a, b, mu, inside ? in + (j0 - in_first) : NULL, in, in_first,
+                 in_n, j0, s->taps);
   }
 }
 

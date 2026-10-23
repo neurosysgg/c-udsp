@@ -34,9 +34,8 @@ float udsp_exp2f(float x) {
   n -= x < (float)n; /* floor */
   const float y = (x - (float)n) * 0.69314718f;
   /* e^y's Taylor series to y^8 / 8!, Horner's way, no division */
-  static const float INV[9] = {0,         1.0f,      1.0f / 2,
-                               1.0f / 3,  1.0f / 4,  1.0f / 5,
-                               1.0f / 6,  1.0f / 7,  1.0f / 8};
+  static const float INV[9] = {0,        1.0f,     1.0f / 2, 1.0f / 3, 1.0f / 4,
+                               1.0f / 5, 1.0f / 6, 1.0f / 7, 1.0f / 8};
   float p = 1.0f;
   for (int k = 8; k >= 1; k--) {
     p = 1.0f + p * y * INV[k];
@@ -48,8 +47,7 @@ float udsp_exp2f(float x) {
 /* a one-pole's coefficient for a time constant of ms: exp(-1 / frames) */
 static float pole(float ms, unsigned rate) {
   const double frames = (double)ms * rate / 1000.0;
-  return frames <= 0.0 ? 0.0f
-                       : (float)udsp_exp2(-1.4426950408889634 / frames);
+  return frames <= 0.0 ? 0.0f : (float)udsp_exp2(-1.4426950408889634 / frames);
 }
 
 /* the key's level: the louder channel, dB */
@@ -66,12 +64,11 @@ void udsp_comp_reset(UDSP_COMP *c) {
   c->ms = 0.0f;
 }
 
-void udsp_comp_set(UDSP_COMP *c, float threshold_db, float ratio,
-                   float knee_db, float attack_ms, float release_ms, int rms,
-                   unsigned rate) {
+void udsp_comp_set(UDSP_COMP *c, float threshold_db, float ratio, float knee_db,
+                   float attack_ms, float release_ms, int rms, unsigned rate) {
   c->thr = threshold_db;
-  c->slope = (ratio >= 1e9f ? 0.0f : 1.0f / (ratio < 1.0f ? 1.0f : ratio)) -
-             1.0f;
+  c->slope =
+      (ratio >= 1e9f ? 0.0f : 1.0f / (ratio < 1.0f ? 1.0f : ratio)) - 1.0f;
   c->knee = knee_db < 0.0f ? 0.0f : knee_db;
   c->att = pole(attack_ms, rate);
   c->rel = pole(release_ms, rate);
@@ -133,8 +130,8 @@ static float slope_of(float ratio) {
 
 void udsp_udcomp_set(UDSP_UDCOMP *c, float above_db, float above_ratio,
                      float below_db, float below_ratio, float up_max_db,
-                     float floor_db, float attack_ms, float release_ms,
-                     int rms, unsigned rate) {
+                     float floor_db, float attack_ms, float release_ms, int rms,
+                     unsigned rate) {
   c->a_thr = above_db;
   c->b_thr = below_db < above_db ? below_db : above_db;
   c->a_slope = slope_of(above_ratio) - 1.0f;

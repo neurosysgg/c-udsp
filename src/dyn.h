@@ -48,14 +48,12 @@ void udsp_comp_reset(UDSP_COMP *c);
 
 /* threshold and knee in dB, ratio >= 1 (1e9 or more: a limiter's
  * infinity), times in ms (> 0) */
-void udsp_comp_set(UDSP_COMP *c, float threshold_db, float ratio,
-                   float knee_db, float attack_ms, float release_ms, int rms,
-                   unsigned rate);
+void udsp_comp_set(UDSP_COMP *c, float threshold_db, float ratio, float knee_db,
+                   float attack_ms, float release_ms, int rms, unsigned rate);
 
 /* the gain (linear, <= 1) for each of frames frames of key (interleaved
  * stereo) into gain */
-void udsp_comp_gain(UDSP_COMP *c, const float *key, float *gain,
-                    size_t frames);
+void udsp_comp_gain(UDSP_COMP *c, const float *key, float *gain, size_t frames);
 
 /* the static curve: the level out (dB) for a steady level in (dB) */
 float udsp_comp_curve(const UDSP_COMP *c, float in_db);
@@ -86,8 +84,8 @@ void udsp_udcomp_reset(UDSP_UDCOMP *c);
  * infinity), times in ms (> 0), up_max >= 0 and floor in dB */
 void udsp_udcomp_set(UDSP_UDCOMP *c, float above_db, float above_ratio,
                      float below_db, float below_ratio, float up_max_db,
-                     float floor_db, float attack_ms, float release_ms,
-                     int rms, unsigned rate);
+                     float floor_db, float attack_ms, float release_ms, int rms,
+                     unsigned rate);
 
 /* the gain (linear) for each of frames frames of key into gain */
 void udsp_udcomp_gain(UDSP_UDCOMP *c, const float *key, float *gain,
@@ -118,8 +116,7 @@ void udsp_gate_set(UDSP_GATE *g, float threshold_db, float return_db,
                    float floor_db, float attack_ms, float hold_ms,
                    float release_ms, unsigned rate);
 
-void udsp_gate_gain(UDSP_GATE *g, const float *key, float *gain,
-                    size_t frames);
+void udsp_gate_gain(UDSP_GATE *g, const float *key, float *gain, size_t frames);
 
 /* --- the limiter --------------------------------------------------------
  * A brickwall over a lookahead of n frames: the gain each frame needs is
@@ -136,11 +133,11 @@ typedef struct {
   float *mem;
   uint32_t cap, n; /* the most frames, and the lookahead now (1..cap) */
   float ceiling, rel;
-  float env; /* the held gain after its release */
-  double sum; /* the window's sum of env */
-  uint64_t t; /* frames in */
+  float env;           /* the held gain after its release */
+  double sum;          /* the window's sum of env */
+  uint64_t t;          /* frames in */
   uint32_t head, tail; /* the minimum's queue */
-  float reduction; /* the last frame's gain applied (a meter's) */
+  float reduction;     /* the last frame's gain applied (a meter's) */
 } UDSP_LIMITER;
 
 /* takes mem (UDSP_LIMITER_FLOATS(cap)) and clears it */

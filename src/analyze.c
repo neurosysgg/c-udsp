@@ -84,8 +84,8 @@ float udsp_analyze_peak(const float *samples, size_t n) {
   for (; i + UDSP_ACC * UDSP_W <= n; i += UDSP_ACC * UDSP_W) {
     UDSP_UNROLL
     for (int a = 0; a < UDSP_ACC; a++) {
-      acc[a] = udsp_vmax(udsp_vabs(udsp_vload(samples + i + (size_t)a * UDSP_W)),
-                         acc[a]);
+      acc[a] = udsp_vmax(
+          udsp_vabs(udsp_vload(samples + i + (size_t)a * UDSP_W)), acc[a]);
     }
   }
   for (int a = 1; a < UDSP_ACC; a++) {
@@ -147,9 +147,9 @@ void udsp_mono_downmix(const float *interleaved, size_t frames, int channels,
     for (; i + 4 <= frames; i += 4) {
       UDSP_V4 a = udsp_v4load(interleaved + 2 * i);
       UDSP_V4 b = udsp_v4load(interleaved + 2 * i + 4);
-      udsp_v4store(mono_out + i,
-                   (UDSP_SHUF4(a, b, 0, 2, 4, 6) + UDSP_SHUF4(a, b, 1, 3, 5, 7)) *
-                       0.5f);
+      udsp_v4store(
+          mono_out + i,
+          (UDSP_SHUF4(a, b, 0, 2, 4, 6) + UDSP_SHUF4(a, b, 1, 3, 5, 7)) * 0.5f);
     }
 #endif
     for (; i < frames; i++) {

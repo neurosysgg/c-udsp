@@ -91,9 +91,8 @@ static inline float hermite(float ym1, float y0, float y1, float y2, float x) {
   return ((c3 * x + c2) * x + c1) * x + y0;
 }
 
-uint64_t udsp_resample_cubic(const float *window, uint32_t ch,
-                             uint64_t pos_q32, uint64_t step_q32, float *out,
-                             size_t frames) {
+uint64_t udsp_resample_cubic(const float *window, uint32_t ch, uint64_t pos_q32,
+                             uint64_t step_q32, float *out, size_t frames) {
   for (size_t f = 0; f < frames; f++) {
     const uint64_t idx = pos_q32 >> 32;
     const float x =

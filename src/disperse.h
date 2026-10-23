@@ -22,10 +22,10 @@ typedef struct {
 typedef struct {
   UDSP_DISPERSE_STAGE st[UDSP_DISPERSE_MAX];
   float k;
-  int whole;  /* stages wholly in */
-  float frac; /* of the next one */
+  int whole;                         /* stages wholly in */
+  float frac;                        /* of the next one */
   float ic[UDSP_DISPERSE_MAX][2][2]; /* ic1, ic2 a channel */
-  int used; /* stages whose state may not be at rest */
+  int used;                          /* stages whose state may not be at rest */
 } UDSP_DISPERSE;
 
 /* zeroes the state (the coefficients are left alone) */
