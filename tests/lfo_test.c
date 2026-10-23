@@ -2,8 +2,8 @@
 
 #include <math.h>
 
-#include "lfo.h"
-#include "osc.h"
+#include "synth/lfo.h"
+#include "synth/osc.h"
 
 static void test_shapes(void) {
   static const float WANT[UDSP_LFO_SHAPES - 1][4] = {

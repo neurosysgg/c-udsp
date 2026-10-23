@@ -2,7 +2,7 @@
 
 #include <math.h>
 
-#include "svf.h"
+#include "fx/svf.h"
 
 static void dc(float *b, int frames) {
   for (int i = 0; i < frames * 2; i++) {

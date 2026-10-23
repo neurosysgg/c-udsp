@@ -1,6 +1,6 @@
 #include "udsp_test.h"
 
-#include "smooth.h"
+#include "synth/smooth.h"
 
 static void test_glide(void) {
   UDSP_SMOOTH s;

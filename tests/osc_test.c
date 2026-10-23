@@ -3,7 +3,7 @@
 #include <math.h>
 #include <string.h>
 
-#include "osc.h"
+#include "synth/osc.h"
 
 #define RATE 48000
 

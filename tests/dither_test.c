@@ -3,7 +3,7 @@
 #include <math.h>
 #include <string.h>
 
-#include "dither.h"
+#include "offline/dither.h"
 
 #define N 200000
 

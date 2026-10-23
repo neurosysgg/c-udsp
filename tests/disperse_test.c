@@ -3,7 +3,7 @@
 #include <math.h>
 #include <string.h>
 
-#include "disperse.h"
+#include "fx/disperse.h"
 
 #define RATE 48000
 #define N RATE

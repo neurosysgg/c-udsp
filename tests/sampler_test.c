@@ -1,6 +1,6 @@
 #include "udsp_test.h"
 
-#include "sampler.h"
+#include "synth/sampler.h"
 
 #include <math.h>
 

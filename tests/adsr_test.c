@@ -3,7 +3,7 @@
 #include <math.h>
 #include <string.h>
 
-#include "adsr.h"
+#include "synth/adsr.h"
 
 #define RATE 48000
 

@@ -2,8 +2,8 @@
 
 #include <math.h>
 
-#include "osc.h"
-#include "pitch.h"
+#include "synth/osc.h"
+#include "synth/pitch.h"
 
 static void test_octaves_are_exact_shifts(void) {
   UDSP_TEST_ASSERT(udsp_pitch_ratio_q32(0) == 1ull << 32, "unison is 1.0");

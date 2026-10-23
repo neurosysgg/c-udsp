@@ -4,8 +4,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "conv.h"
-#include "fft.h"
+#include "base/fft.h"
+#include "fx/conv.h"
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846

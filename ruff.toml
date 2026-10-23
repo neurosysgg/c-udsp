@@ -1,0 +1,9 @@
+# ruff for the tools' Python (make lint): the rules that find bugs --
+# pyflakes (F), syntax errors (E9), bugbear (B) -- not style
+target-version = "py312"
+extend-exclude = ["build"]
+
+[lint]
+select = ["F", "E9", "B"]
+# loop variables left unused (B007): a tuple unpacked for its shape
+ignore = ["B007"]

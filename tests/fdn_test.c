@@ -5,8 +5,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "fdn.h"
-#include "line.h"
+#include "fx/fdn.h"
+#include "fx/line.h"
 
 #define RATE 48000
 

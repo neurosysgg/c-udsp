@@ -12,6 +12,29 @@ none of that belongs here, and nothing in `src/` knows any of it exists.
 A caller supplies its own buffers on its own schedule; that's the entire
 contract.
 
+## Layout: src/'s directories
+
+```
+src/base/       simd.h (the vectors), fft.c (the transform): what every
+                other directory may use, and uses nothing itself
+src/analysis/   measuring a signal: analyze, spectrum, spectrogram,
+                loudness, r128, yin, scope, ballistics
+src/synth/      making one: pitch, osc, wtab, lfo, adsr, openv, ramp,
+                smooth, sampler
+src/fx/         changing one, in a render: svf, zdf, eq, xover, disperse,
+                line, delay, fdn, dyn, shape, gain, conv
+src/offline/    changing one ahead of a render, at any cost: sinc,
+                stretch, dither
+```
+
+Each directory includes only `base/` and itself, with one exception:
+`fx/` uses `synth/` (a filter's coefficients through `udsp_osc_sine`, a
+time in samples through `udsp_exp2`, an LFO's sweep). `tools/deps.py`
+(in `make lint`) holds the table, and that src/ includes nothing from
+the system beyond libc's pure headers and the intrinsics -- no stdio,
+no stdlib, no threads. Headers are included by their path under
+`src/` (`#include "synth/osc.h"`, `-Isrc`), consumers the same way.
+
 ## Pipeline layering: transform → domain-specific analysis → stateful history
 
 ```
@@ -87,7 +110,7 @@ perceptual scaling) or a change from stateless to stateful** — not "one
 file per visualizer." `spectrum.c` and `spectrogram.c` are separate files
 for the second reason (state); `fft.c` and `spectrum.c` are separate for
 the first (a numeric transform vs. an audio-domain interpretation of
-one). None of `src/*.c` know anything about display sizing beyond their
+one). None of `src/` knows anything about display sizing beyond their
 own defaults (`spectrum.h` owns its own default bar count, `scope.h` its
 own trace length, `spectrogram.h` its own grid dimensions) — a caller is
 always free to override with a runtime argument where one exists
@@ -406,7 +429,7 @@ none of it is assumed or required here.
    sibling to `spectrogram.c` if it needs history; a new time-domain one
    wants the caller's raw buffer directly, the way `scope.c` does.
 2. If it needs a genuinely new *kind* of analysis (not a re-parameterized
-   call to something that exists), give it its own file under `src/`,
+   call to something that exists), give it its own file under `src/analysis/`,
    named for the computation, not for any one caller's use of it.
 3. Keep it allocation-free and caller-buffer-based: any working memory a
    new function needs should be a `scratch` parameter the caller owns,

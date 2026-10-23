@@ -1,6 +1,6 @@
 #include "udsp_test.h"
 
-#include "loudness.h"
+#include "analysis/loudness.h"
 
 #include <math.h>
 #include <stdlib.h>

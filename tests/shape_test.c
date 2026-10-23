@@ -2,7 +2,7 @@
 
 #include <math.h>
 
-#include "shape.h"
+#include "fx/shape.h"
 
 static void test_softclip_values(void) {
   float b[11] = {0.0f,  1.0f, -1.0f, 100.0f, -100.0f, 0.5f,

@@ -1,6 +1,6 @@
 #include "udsp_test.h"
 
-#include "sinc.h"
+#include "offline/sinc.h"
 
 #include <math.h>
 #include <stdlib.h>

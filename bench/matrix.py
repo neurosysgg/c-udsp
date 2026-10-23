@@ -13,6 +13,7 @@ ratio old/new per kernel and build (> 1 = faster now). Builds live in
 bench/build/ (gitignored)."""
 
 import argparse
+import glob
 import os
 import subprocess
 import sys
@@ -52,8 +53,7 @@ def build(name, prog, extra="", tag=""):
     cc, flags = BUILDS[name]
     out = os.path.join(HERE, "build", prog + "-" + name + tag)
     os.makedirs(os.path.dirname(out), exist_ok=True)
-    src = [os.path.join(ROOT, "src", f) for f in sorted(os.listdir(
-        os.path.join(ROOT, "src"))) if f.endswith(".c")] \
+    src = sorted(glob.glob(os.path.join(ROOT, "src", "*", "*.c"))) \
         if prog != "reduce" else []
     cmd = [cc, "-std=c11", "-Wall", "-Wextra", "-g", *flags.split(),
            *extra.split(),

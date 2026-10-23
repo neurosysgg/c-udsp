@@ -1,6 +1,6 @@
 #include "udsp_test.h"
 
-#include "delay.h"
+#include "fx/delay.h"
 
 static void test_impulse_repeats(void) {
   float ring[UDSP_DELAY_RING_FLOATS(8)];

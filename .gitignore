@@ -1,4 +1,4 @@
-test-*
-*.o
-bench/build/
+build/
+compile_commands.json
 bench/__pycache__/
+tools/__pycache__/

@@ -25,8 +25,21 @@ call it," it belongs in the consumer, not here.
 `CTUI_`/`ctui_` and `ctui-mus`'s `MUS_`/`mus_` conventions use, scoped to
 this library.
 
+## Layout
+
+`src/` is grouped by what a module does (DESIGN.md "Layout"): `base/`
+(simd, fft), `analysis/`, `synth/`, `fx/`, `offline/`. Headers are
+included by their path under `src/` (`#include "synth/osc.h"`), here and
+in the consumers. `tools/deps.py` (in `make lint`) holds the layering --
+a new include across directories either fits its ALLOWED table or the
+table changes, with DESIGN.md saying why -- and src/'s system headers
+(SYSTEM: libc's pure ones and the intrinsics). A new module goes into
+the directory it belongs to, its test into `tests/NAME_test.c`.
+
 ## Code style
 
+- clang-format (`.clang-format`, ctui's): `make format`; `make lint`
+  fails on a file it would change.
 - No comments except where the *why* isn't obvious from the code: a
   hidden constraint, a subtle invariant, a documented simplification
   (see `DESIGN.md`). Never restate what a well-named line already says.
@@ -48,7 +61,7 @@ this library.
 
 ## Speed
 
-- Loops over samples use `src/simd.h` (`UDSP_VF`, `udsp_vload`/`vstore`,
+- Loops over samples use `src/base/simd.h` (`UDSP_VF`, `udsp_vload`/`vstore`,
   `udsp_vmax`/...), never raw intrinsics outside it and never a vector
   wider than the target. Reductions: `UDSP_ACC` accumulators, and
   `UDSP_UNROLL` on every loop over an accumulator array (gcc -O2 needs
@@ -66,8 +79,16 @@ this library.
 
 ## Testing approach
 
-`make test-variants` before calling anything done: every build the
-kernels have a path for, plus ASan/UBSan. Plain, dependency-free unit
+`make check` before calling anything done: `make test-variants` (every
+build the kernels have a path for, plus ASan/UBSan, each with
+bench/ulp.c's tolerances), the plain build's suites, then `make lint` --
+lint's only new findings fail (fix them, or add them to
+`tools/lint-baseline.txt` under a comment saying why they stay -- never
+`--update` alone). `make SAN=1 test` and `make test-valgrind` are the
+quick sanitizer runs between; `make COV=1 coverage` shows what the suites
+reach. Objects live in `build/FLAVOUR/` (`O2`, `O2-san`, `O2-cov`,
+`variant/...`) and don't track flags beyond the flavour: after changing
+CFLAGS by hand, `make clean`. Plain, dependency-free unit
 tests under `tests/`, using the header-only
 `udsp_test.h` assert/summary pair (`make test` builds and runs all of
 them). Prefer known-input/known-output assertions over comparing against
@@ -78,6 +99,11 @@ exact values (not just "greater than the floor") catches a regression in
 the math immediately rather than letting it drift.
 
 ## Consumers
+
+Each one compiles `src/*/*.c` itself, with `-I<this repo>/src`, and
+includes headers by their directory; a module moving directories, or a
+new directory, is a change in all of them (their Makefiles and includes)
+the next time they bump the submodule.
 
 `ctui-daw` (submodule `vendor/c-µdsp`) uses the synthesis half and holds
 it to µOS's renders bit for bit (its `tests/utrk_test.c`): a change to

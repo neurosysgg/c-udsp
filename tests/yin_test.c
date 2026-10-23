@@ -1,6 +1,6 @@
 #include "udsp_test.h"
 
-#include "yin.h"
+#include "analysis/yin.h"
 
 #include <math.h>
 

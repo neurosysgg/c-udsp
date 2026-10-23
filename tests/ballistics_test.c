@@ -1,6 +1,6 @@
 #include "udsp_test.h"
 
-#include "ballistics.h"
+#include "analysis/ballistics.h"
 
 #include <math.h>
 

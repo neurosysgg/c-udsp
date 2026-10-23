@@ -1,6 +1,6 @@
 #include "udsp_test.h"
 
-#include "analyze.h"
+#include "analysis/analyze.h"
 
 #include <math.h>
 #include <stdlib.h>

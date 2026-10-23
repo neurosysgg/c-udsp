@@ -3,7 +3,7 @@
 #include <math.h>
 #include <string.h>
 
-#include "openv.h"
+#include "synth/openv.h"
 
 #define RATE 48000
 

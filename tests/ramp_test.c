@@ -1,6 +1,6 @@
 #include "udsp_test.h"
 
-#include "ramp.h"
+#include "synth/ramp.h"
 
 static void ones(float *b, int n) {
   for (int i = 0; i < n; i++) {

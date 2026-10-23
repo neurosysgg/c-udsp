@@ -4,8 +4,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "osc.h"
-#include "wtab.h"
+#include "synth/osc.h"
+#include "synth/wtab.h"
 
 #define RATE 48000
 #define PI 3.14159265358979323846

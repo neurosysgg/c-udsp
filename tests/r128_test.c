@@ -1,6 +1,6 @@
 #include "udsp_test.h"
 
-#include "r128.h"
+#include "analysis/r128.h"
 
 #include <math.h>
 #include <string.h>

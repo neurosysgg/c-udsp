@@ -1,6 +1,6 @@
 #include "udsp_test.h"
 
-#include "gain.h"
+#include "fx/gain.h"
 
 #include <math.h>
 

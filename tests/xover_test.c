@@ -3,7 +3,7 @@
 #include <math.h>
 #include <string.h>
 
-#include "xover.h"
+#include "fx/xover.h"
 
 #define RATE 48000
 #define N RATE

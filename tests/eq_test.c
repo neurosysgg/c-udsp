@@ -4,7 +4,7 @@
 #include <stdint.h>
 #include <string.h>
 
-#include "eq.h"
+#include "fx/eq.h"
 
 #define RATE 48000
 

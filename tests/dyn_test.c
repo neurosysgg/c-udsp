@@ -5,7 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "dyn.h"
+#include "fx/dyn.h"
 
 #define RATE 48000
 

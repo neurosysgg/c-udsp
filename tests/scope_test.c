@@ -1,6 +1,6 @@
 #include "udsp_test.h"
 
-#include "scope.h"
+#include "analysis/scope.h"
 
 #include <math.h>
 

@@ -4,7 +4,7 @@
 #include <stdint.h>
 #include <string.h>
 
-#include "zdf.h"
+#include "fx/zdf.h"
 
 #define RATE 48000
 

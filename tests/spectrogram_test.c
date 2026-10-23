@@ -1,7 +1,7 @@
 #include "udsp_test.h"
 
-#include "spectrogram.h"
-#include "spectrum.h"
+#include "analysis/spectrogram.h"
+#include "analysis/spectrum.h"
 
 #include <math.h>
 #include <string.h>
