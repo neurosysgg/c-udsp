@@ -413,15 +413,110 @@ are measured against:
   of one channel at 44.1 -> 48 kHz, 256 taps a row) 89 us gcc -O2, 98
   us -v3 -- ~44 ns an output: four lanes in a fixed order whatever the
   width (the same bits everywhere), so AVX2 has nothing to add. A
-  10-minute stereo file converts in ~2.5 s, once, at import.
+  10-minute stereo file converts in ~2.5 s, once, at import. (Session
+  255: sixteen lanes, 48 us; ~1.3 s.)
 - The varispeed sinc (ctui-daw's d7, ctui-wm session 238): `vsinc`
   (1024 stereo frames at 1.0595, a semitone up: 2048 outputs, 64 taps
   each read from the table and interpolated) 309 us gcc -O2, 193 us
   gcc -O3 -v3, 242 us clang -O2 -- ~0.3 ms a 1024-frame block, ~1.4 %
   of a core per warped clip playing. The weights are computed per
-  output (shared by its channels) in plain C: the place to look if it's
-  ever wanted faster.
+  output (shared by its channels) in plain C; session 255 took 1.3-1.6x
+  out of the loops around them (below).
 - The elementwise ones gain 3-7x (mix_add, gain_stereo, softclip).
   ramp_held doesn't move: its scalar build's plain `p[i] *= e` loop is
   auto-vectorised by gcc at -O2 too; the explicit vectors make that not
   depend on the compiler's cost model.
+
+### The second pass (session 255)
+
+The library had doubled since the first pass (the effects, the FM
+operator and its envelope, the bands, convolution, the sincs), most of
+it written for its bits rather than its speed. A matrix over every
+kernel (`results/s255-before.tsv`, `s255-after.tsv`), then ctui-daw
+under callgrind (a project's offline render: the FM synth was 57 % of
+the DSP, its operators and envelopes most of it) picked the kernels.
+Every change but the fixed sinc's keeps the bits: ulp.c's hashes the
+same as the commit before's, in gcc and clang, SSE2 and AVX2 and the scalar build;
+ctui-daw's suites (µOS's goldens) pass against it, and its render of
+that project is the same bytes. ns per call, the same machine:
+
+| kernel | gcc-O2 | gcc-O2-v3 | clang-O2-v3 | what |
+|---|---|---|---|---|
+| fmop_table | 28330 -> 5647 (5.0x) | 5.3x | 5.7x | no feedback, no chain: the samples overlap |
+| comp | 20473 -> 6179 (3.3x) | 4.5x | 5.1x | dynamics in passes (below) |
+| udcomp | 20324 -> 7580 (2.7x) | 3.3x | 3.1x | the same |
+| gate (new in bench.c) | 27828 -> 14069 (2.0x) | 3.6x | 3.2x | the same, its state machine serial |
+| openv | 5149 -> 2071 (2.5x) | 2.5x | 2.6x | a segment's frames in one loop over locals |
+| eq, eq48 | 6865 -> 3788 (1.8x) | 1.8x | = | gcc's SLP off (below) |
+| xover3 | 34956 -> 21849 (1.6x) | 1.6x | = | the same |
+| disperse64 | 232598 -> 92242 (2.5x) | 6.5x | 8.9x | a wavefront of stages in lanes, four a frame for the rest |
+| sinc (new bits) | 91154 -> 48480 (1.9x) | 1.7x | 2.3x | four accumulators, the branches out of the loop |
+| vsinc | 300564 -> 187033 (1.6x) | 1.6x | 1.3x | a window inside the input read without its bounds tests |
+| fmop_fb | 32314 -> 30965 (1.04x) | 1.04x | 1.04x | the sine inline |
+
+- **gcc packs a stereo pair badly.** A loop running two channels' chains
+  side by side (session 221's finding) is what gcc's SLP vectoriser
+  likes: it packs L and R into a 2-lane vector -- and, since the upper
+  two lanes are garbage, clears them with a `movq` after every
+  operation, on the chain. The EQ's chain of ~15 cycles a frame became
+  ~31; clang keeps scalars. `UDSP_NO_SLP` (simd.h: gcc's
+  `optimize("no-tree-slp-vectorize")` on the function) on the EQ's and
+  the crossover's loops; the attribute leaves `-ffp-contract` and the
+  target alone (checked in the asm). The same flag over the whole
+  library moved nothing else but r128, 5 % slower: so per function.
+- **Dynamics in passes.** The compressor ran a frame at a time: the
+  key's level (a log2), the curve, the smoother, the gain (an exp2 of
+  eight Horner steps) -- ~94 cycles a frame, the smoother's short chain
+  waiting on the rest. Now through the gain buffer: the level (the RMS
+  mode's mean square serially), log2 in lanes (`vlog2f`, udsp_log2f's
+  operations in its order), the curve in lanes (both sides of the knee,
+  selected), the smoother alone, exp2 in lanes (`vexp2f`). Even the
+  scalar build gains 1.3-1.4x (the passes overlap).
+- **The FM operator's feedback** is one chain a sample through the
+  phase, the wrap, the sine's polynomial and the level: ~70 cycles,
+  latency. Inlining the sine (now `static inline` in osc.h) took 4 %;
+  the rest needs other operators in the gaps -- a voice's two sides, or
+  the same operator of several voices in lanes, which is an API
+  (several `UDSP_FMOP` at once) and a change to how ctui-daw's FM walks
+  its voices. Without feedback a table operator has no chain at all,
+  which the code didn't use (5x).
+- **Stages in lanes.** The disperser ran its 64 allpasses a block at a
+  time each (two chains of ~15 cycles a frame). Four a frame (scalar)
+  is eight chains in flight, ~1.35x: the arithmetic per stage-channel
+  (7 multiplies, 7 adds) makes ~2.1x the scalar roof, and eight-wide
+  groups spill. The stages now run as a **wavefront** in vector lanes
+  (`wavefront()`, two vectors of them: 8 stages on SSE2, 16 on AVX):
+  lane k is stage k at the frame k steps behind lane 0's, its input the
+  output lane k - 1 made a step before (`udsp_vshift_in`). Each stage
+  still sees its frames in order through the same operations, so the
+  bits don't move; a block's first and last steps keep the lanes
+  without a frame of their own still (a mask: the test cuts blocks of
+  1 .. 250 frames, and ulp.c's hash covers short blocks). What's left
+  over (n mod the wavefront) runs four a frame, then one.
+- **The fixed sinc's sum** was one 4-lane accumulator over 256 taps
+  (~3 cycles a block of latency) with the blend's and the bounds'
+  branches inside (gcc -O2 doesn't unswitch). Now four accumulators
+  take the 4-tap blocks in turn (block n into sum n & 3), in a fixed
+  order whatever the build, the branches decided once a row. The one
+  change here that **moves the bits** (still the same on every build;
+  the user's call, session 255): an imported file converted again
+  differs from its earlier conversion by roundings.
+- **The envelope** re-tested its stage and went through the struct a
+  frame (`out` may alias it); a segment's frames short of its landing
+  now run in one of two loops (a line, a curve) over locals.
+- Tried and left: the convolution's accumulator held in registers over
+  the partitions (1.3x *slower*: each partition's slice read in 64-byte
+  pieces defeats the prefetcher, and ~3 MB of spectra a block is L3
+  bandwidth, not the accumulator); the FDN's state copied to locals (no
+  change: not reloads). What would move those is algorithmic: a
+  non-uniform tail (partitions of 4096 after the 512 stage: the
+  multiply-adds a frame scale with 1 / partition) for the convolver.
+- Left: the vsinc weights in double lanes; the FM feedback across
+  operators (above). The convolver's non-uniform tail went into the
+  consumer (ctui-daw's convolver, its stages 64 / 512 / 4096: a 4 s
+  response 1.4 -> 0.46 % of a core, true stereo 2.7 -> 0.71 %).
+
+Found on the way: `make test-variants`'s directories kept the `=` of
+`-march=x86-64-v3`, so a `.d` file's rule read as a variable assignment
+and the -march variants ignored header changes (a header-only change
+linked stale objects). The names drop it now.

@@ -442,6 +442,11 @@ static void k_comp(void) {
   udsp_comp_gain(&g_comp, g_in, g_out, N / 2);
   g_sink = g_out[3];
 }
+static UDSP_GATE g_gate;
+static void k_gate(void) {
+  udsp_gate_gain(&g_gate, g_in, g_out, N / 2);
+  g_sink = g_out[3];
+}
 static UDSP_LIMITER g_lim;
 static float g_lim_mem[UDSP_LIMITER_FLOATS(48)];
 static void k_limiter(void) {
@@ -548,6 +553,7 @@ static const KERNEL KERNELS[] = {
     {"eq", N, k_eq},
     {"eq48", N, k_eq48},
     {"comp", N / 2, k_comp},
+    {"gate", N / 2, k_gate},
     {"fft_real_inverse", N, k_fft_real_inverse},
     {"conv512", 512, k_conv512},
     {"conv256", 256, k_conv256},
@@ -646,6 +652,8 @@ int main(int argc, char **argv) {
   udsp_fdn_set(&g_fdn, 1.0f, 2.0f, 6000.0f, 0.6f, 0.5f, 10.0f, 1.0f);
   udsp_comp_reset(&g_comp);
   udsp_comp_set(&g_comp, -18.0f, 4.0f, 6.0f, 5.0f, 100.0f, 0, 48000);
+  udsp_gate_set(&g_gate, -30.0f, 4.0f, -40.0f, 0.5f, 5.0f, 20.0f, 48000);
+  udsp_gate_reset(&g_gate);
   udsp_limiter_init(&g_lim, g_lim_mem, 48);
   udsp_limiter_set(&g_lim, 48, 0.5f, 50.0f, 48000);
   conv_bench_init(&g_conv512, 512, g_big);

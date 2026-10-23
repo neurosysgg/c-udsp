@@ -2,6 +2,7 @@
 
 #include <string.h>
 
+#include "base/simd.h"
 #include "synth/osc.h"
 
 #define BUTTER_K 1.41421356f /* 1 / Q, Q = 1 / sqrt(2) */
@@ -40,8 +41,8 @@ static inline void tick(const UDSP_XOVER_SPLIT *c, float x, float *ic,
 
 /* rest's frames split at c: its low side into low, its high side kept;
  * both channels in one loop (two chains overlap: svf.c's finding) */
-static void split(const UDSP_XOVER_SPLIT *c, float (*sec)[2][2], float *rest,
-                  float *low, size_t frames) {
+UDSP_NO_SLP static void split(const UDSP_XOVER_SPLIT *c, float (*sec)[2][2],
+                              float *rest, float *low, size_t frames) {
   float s[3][2][2];
   memcpy(s, sec, sizeof s);
   for (size_t i = 0; i < frames; i++) {
@@ -60,8 +61,8 @@ static void split(const UDSP_XOVER_SPLIT *c, float (*sec)[2][2], float *rest,
 }
 
 /* io's frames through c's allpass: x - 2k band */
-static void allpass(const UDSP_XOVER_SPLIT *c, float (*st)[2], float *io,
-                    size_t frames) {
+UDSP_NO_SLP static void allpass(const UDSP_XOVER_SPLIT *c, float (*st)[2],
+                                float *io, size_t frames) {
   float s[2][2];
   memcpy(s, st, sizeof s);
   for (size_t i = 0; i < frames; i++) {

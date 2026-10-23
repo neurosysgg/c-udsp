@@ -71,9 +71,9 @@ typedef struct {
 
 /* n samples of amp[i] * wave(phase + pm[i] + feedback): pm NULL is none,
  * amp the operator's level a sample (its envelope times its gain). With
- * feedback each sample waits on the one before (scalar); a sine without
- * it is udsp_osc_render_pm's vectors times amp. The same bits whatever
- * the blocks. */
+ * feedback each sample waits on the one before (scalar); without it a
+ * table's samples don't, and a sine is udsp_osc_render_pm's vectors
+ * times amp. The same bits whatever the blocks. */
 void udsp_fmop_render(UDSP_FMOP *o, const float *pm, const float *amp,
                       float *out, size_t n);
 

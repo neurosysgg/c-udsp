@@ -2,6 +2,7 @@
 
 #include <math.h>
 
+#include "base/simd.h"
 #include "synth/osc.h"
 #include "synth/pitch.h"
 
@@ -123,7 +124,8 @@ static inline float step(const UDSP_EQ_STAGE *s, float v0, float *ic1,
 
 /* n frames of a ramp through section k: its coefficients a frame on,
  * then the frame */
-static void ramp_stage(UDSP_EQ_BAND *b, int k, float *io, size_t n) {
+UDSP_NO_SLP static void ramp_stage(UDSP_EQ_BAND *b, int k, float *io,
+                                   size_t n) {
   UDSP_EQ_STAGE s = b->st[k];
   const float *d = b->step[k];
   float l1 = b->ic1[k][0], l2 = b->ic2[k][0];
@@ -149,7 +151,7 @@ static void ramp_stage(UDSP_EQ_BAND *b, int k, float *io, size_t n) {
 
 /* a section at a time over the block, both channels in one loop (svf.c's
  * reasoning: two serial chains overlap) */
-void udsp_eq_stereo(UDSP_EQ_BAND *b, float *io, size_t frames) {
+UDSP_NO_SLP void udsp_eq_stereo(UDSP_EQ_BAND *b, float *io, size_t frames) {
   if (b->ramp) {
     const size_t n = frames < b->ramp ? frames : b->ramp;
     for (int k = 0; k < b->stages; k++) {

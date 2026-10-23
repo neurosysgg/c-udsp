@@ -1,7 +1,9 @@
 #include "fx/dyn.h"
 
+#include <math.h>
 #include <string.h>
 
+#include "base/simd.h"
 #include "synth/pitch.h"
 
 typedef union {
@@ -44,17 +46,97 @@ float udsp_exp2f(float x) {
   return p * s.f;
 }
 
+#if UDSP_W > 1
+/* udsp_log2f() and udsp_exp2f() per lane: their operations in their
+ * order, so a lane's bits are the scalar call's */
+static UDSP_VF vlog2f(UDSP_VF x) {
+  UDSP_VU u = (UDSP_VU)x;
+  UDSP_VI e = (UDSP_VI)((u >> 23) & 255u) - 127;
+  const UDSP_VU m = u & 0x007fffffu;
+  const UDSP_VI big = (UDSP_VI)(m > 0x003504f3u);
+  u = m | (((UDSP_VU)big & 0x3f000000u) | (~(UDSP_VU)big & 0x3f800000u));
+  e -= big;
+  const UDSP_VF f = (UDSP_VF)u;
+  const UDSP_VF t = (f - 1.0f) / (f + 1.0f);
+  const UDSP_VF t2 = t * t;
+  const UDSP_VF s =
+      1.0f + t2 * (1.0f / 3 + t2 * (1.0f / 5 + t2 * (1.0f / 7 + t2 / 9)));
+  return __builtin_convertvector(e, UDSP_VF) + 2.8853900817779268f * t * s;
+}
+
+static UDSP_VF vexp2f(UDSP_VF x) {
+  x = udsp_vsel(x < -126.0f, udsp_vsplat(-126.0f),
+                udsp_vsel(x > 127.0f, udsp_vsplat(127.0f), x));
+  UDSP_VI n = __builtin_convertvector(x, UDSP_VI);
+  n += x < __builtin_convertvector(n, UDSP_VF); /* floor: -1 where true */
+  const UDSP_VF y = (x - __builtin_convertvector(n, UDSP_VF)) * 0.69314718f;
+  static const float INV[9] = {0,        1.0f,     1.0f / 2, 1.0f / 3, 1.0f / 4,
+                               1.0f / 5, 1.0f / 6, 1.0f / 7, 1.0f / 8};
+  UDSP_VF p = udsp_vsplat(1.0f);
+  for (int k = 8; k >= 1; k--) {
+    p = 1.0f + p * y * INV[k];
+  }
+  return p * (UDSP_VF)((n + 127) << 23);
+}
+#endif
+
+/* x[i] = scale * log2(x[i]), x > 0 */
+static void log2_scaled(float *x, size_t n, float scale) {
+  size_t i = 0;
+#if UDSP_W > 1
+  for (; i + UDSP_W <= n; i += UDSP_W) {
+    udsp_vstore(x + i, scale * vlog2f(udsp_vload(x + i)));
+  }
+#endif
+  for (; i < n; i++) {
+    x[i] = scale * udsp_log2f(x[i]);
+  }
+}
+
+/* db[i] in dB to a gain; at or under `shut` dB, 0 (the gate's floor) */
+static void gains_from_db(float *db, size_t n, float shut) {
+  size_t i = 0;
+#if UDSP_W > 1
+  for (; i + UDSP_W <= n; i += UDSP_W) {
+    const UDSP_VF d = udsp_vload(db + i);
+    const UDSP_VF g = vexp2f(d * (1.0f / UDSP_DB_PER_LOG2));
+    udsp_vstore(db + i, udsp_vsel(d <= shut, udsp_vsplat(0.0f), g));
+  }
+#endif
+  for (; i < n; i++) {
+    db[i] = db[i] <= shut ? 0.0f : udsp_gain_from_db(db[i]);
+  }
+}
+
+/* the key's level a frame into x, dB: its peak (the louder channel's)
+ * or its mean square over ms_coef's 10 ms (ms the running one) */
+static void key_db(const float *key, float *x, size_t frames, int rms, float mc,
+                   float *ms_io) {
+  if (rms) {
+    float ms = *ms_io;
+    for (size_t i = 0; i < frames; i++) {
+      const float l = key[2 * i], r = key[2 * i + 1];
+      const float sq = l * l > r * r ? l * l : r * r;
+      ms = sq + mc * (ms - sq);
+      x[i] = ms < 1e-30f ? 1e-30f : ms;
+    }
+    *ms_io = ms;
+    log2_scaled(x, frames, 0.5f * UDSP_DB_PER_LOG2);
+  } else {
+    for (size_t i = 0; i < frames; i++) {
+      float a = key[2 * i] < 0.0f ? -key[2 * i] : key[2 * i];
+      float b = key[2 * i + 1] < 0.0f ? -key[2 * i + 1] : key[2 * i + 1];
+      a = a > b ? a : b;
+      x[i] = a < 1e-15f ? 1e-15f : a;
+    }
+    log2_scaled(x, frames, UDSP_DB_PER_LOG2);
+  }
+}
+
 /* a one-pole's coefficient for a time constant of ms: exp(-1 / frames) */
 static float pole(float ms, unsigned rate) {
   const double frames = (double)ms * rate / 1000.0;
   return frames <= 0.0 ? 0.0f : (float)udsp_exp2(-1.4426950408889634 / frames);
-}
-
-/* the key's level: the louder channel, dB */
-static inline float peak_db(const float *k) {
-  float a = k[0] < 0.0f ? -k[0] : k[0];
-  float b = k[1] < 0.0f ? -k[1] : k[1];
-  return udsp_db_from_gain(a > b ? a : b);
 }
 
 /* --- the compressor ---------------------------------------------------- */
@@ -90,27 +172,36 @@ static inline float reduction(const UDSP_COMP *c, float x) {
   return -c->slope * d;
 }
 
+/* in passes over gain: the level, the curve's reduction (lanes), the
+ * smoother (the one serial chain), the gain (lanes) -- per frame the
+ * operations a frame at a time would do */
 void udsp_comp_gain(UDSP_COMP *c, const float *key, float *gain,
                     size_t frames) {
-  float red = c->red, ms = c->ms;
-  const float att = c->att, rel = c->rel, mc = c->ms_coef;
-  for (size_t i = 0; i < frames; i++) {
-    float x;
-    if (c->rms) {
-      const float l = key[2 * i], r = key[2 * i + 1];
-      const float sq = l * l > r * r ? l * l : r * r;
-      ms = sq + mc * (ms - sq);
-      x = 0.5f * UDSP_DB_PER_LOG2 * udsp_log2f(ms < 1e-30f ? 1e-30f : ms);
-    } else {
-      x = peak_db(key + 2 * i);
-    }
-    const float want = reduction(c, x);
+  key_db(key, gain, frames, c->rms, c->ms_coef, &c->ms);
+  size_t i = 0;
+#if UDSP_W > 1
+  const float neg = -c->slope, w = c->knee;
+  for (; i + UDSP_W <= frames; i += UDSP_W) {
+    const UDSP_VF d = udsp_vload(gain + i) - c->thr;
+    const UDSP_VF e = d + 0.5f * w;
+    const UDSP_VF knee = neg * e * e / (2.0f * w), line = neg * d;
+    const UDSP_VF r = udsp_vsel(2.0f * d < w, knee, line);
+    udsp_vstore(gain + i, udsp_vsel(2.0f * d <= -w, udsp_vsplat(0.0f), r));
+  }
+#endif
+  for (; i < frames; i++) {
+    gain[i] = reduction(c, gain[i]);
+  }
+  float red = c->red;
+  const float att = c->att, rel = c->rel;
+  for (i = 0; i < frames; i++) {
+    const float want = gain[i];
     const float a = want > red ? att : rel;
     red = want + a * (red - want);
-    gain[i] = udsp_gain_from_db(-red);
+    gain[i] = -red;
   }
   c->red = red;
-  c->ms = ms;
+  gains_from_db(gain, frames, -INFINITY); /* finite: never */
 }
 
 float udsp_comp_curve(const UDSP_COMP *c, float in_db) {
@@ -156,27 +247,35 @@ static inline float ud_gain(const UDSP_UDCOMP *c, float x) {
   return 0.0f;
 }
 
+/* comp's passes */
 void udsp_udcomp_gain(UDSP_UDCOMP *c, const float *key, float *gain,
                       size_t frames) {
-  float db = c->db, ms = c->ms;
-  const float att = c->att, rel = c->rel, mc = c->ms_coef;
-  for (size_t i = 0; i < frames; i++) {
-    float x;
-    if (c->rms) {
-      const float l = key[2 * i], r = key[2 * i + 1];
-      const float sq = l * l > r * r ? l * l : r * r;
-      ms = sq + mc * (ms - sq);
-      x = 0.5f * UDSP_DB_PER_LOG2 * udsp_log2f(ms < 1e-30f ? 1e-30f : ms);
-    } else {
-      x = peak_db(key + 2 * i);
-    }
-    const float want = ud_gain(c, x);
+  key_db(key, gain, frames, c->rms, c->ms_coef, &c->ms);
+  size_t i = 0;
+#if UDSP_W > 1
+  for (; i + UDSP_W <= frames; i += UDSP_W) {
+    const UDSP_VF x = udsp_vload(gain + i);
+    const UDSP_VF down = c->a_slope * (x - c->a_thr);
+    UDSP_VF up = c->b_slope * (c->b_thr - x);
+    up = udsp_vsel(up < c->up_max, up, udsp_vsplat(c->up_max));
+    const UDSP_VF r =
+        udsp_vsel((x < c->b_thr) & (x > c->floor), up, udsp_vsplat(0.0f));
+    udsp_vstore(gain + i, udsp_vsel(x > c->a_thr, down, r));
+  }
+#endif
+  for (; i < frames; i++) {
+    gain[i] = ud_gain(c, gain[i]);
+  }
+  float db = c->db;
+  const float att = c->att, rel = c->rel;
+  for (i = 0; i < frames; i++) {
+    const float want = gain[i];
     const float a = want < db ? att : rel;
     db = want + a * (db - want);
-    gain[i] = udsp_gain_from_db(db);
+    gain[i] = db;
   }
   c->db = db;
-  c->ms = ms;
+  gains_from_db(gain, frames, -INFINITY); /* finite: never */
 }
 
 float udsp_udcomp_curve(const UDSP_UDCOMP *c, float in_db) {
@@ -207,9 +306,10 @@ void udsp_gate_set(UDSP_GATE *g, float threshold_db, float return_db,
 
 void udsp_gate_gain(UDSP_GATE *g, const float *key, float *gain,
                     size_t frames) {
+  key_db(key, gain, frames, 0, 0.0f, NULL);
   float db = g->db;
   for (size_t i = 0; i < frames; i++) {
-    const float x = peak_db(key + 2 * i);
+    const float x = gain[i];
     if (x >= g->open_db) {
       g->open = 1;
       g->held = 0;
@@ -219,10 +319,11 @@ void udsp_gate_gain(UDSP_GATE *g, const float *key, float *gain,
     const float want = g->open ? 0.0f : g->floor_db;
     const float a = want > db ? g->att : g->rel;
     db = want + a * (db - want);
-    /* at the floor's -100 dB the gate is shut: silence, not -100 dB */
-    gain[i] = db <= -99.9f ? 0.0f : udsp_gain_from_db(db);
+    gain[i] = db;
   }
   g->db = db;
+  /* at the floor's -100 dB the gate is shut: silence, not -100 dB */
+  gains_from_db(gain, frames, -99.9f);
 }
 
 /* --- the limiter -------------------------------------------------------

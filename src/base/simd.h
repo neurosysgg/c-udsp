@@ -135,6 +135,25 @@ static inline UDSP_VF udsp_vrev(UDSP_VF v) {
 #endif
 }
 
+/* the lanes moved up by one, x into lane 0: a wavefront's lane taking
+ * the output its neighbour made a step before */
+static inline UDSP_VF udsp_vshift_in(UDSP_VF v, float x) {
+  const UDSP_VF s = udsp_vsplat(x);
+#if defined(__clang__) || __GNUC__ >= 12
+#if UDSP_W == 8
+  return __builtin_shufflevector(v, s, 8, 0, 1, 2, 3, 4, 5, 6);
+#else
+  return __builtin_shufflevector(v, s, 4, 0, 1, 2);
+#endif
+#else
+#if UDSP_W == 8
+  return __builtin_shuffle(v, s, (UDSP_VI){8, 0, 1, 2, 3, 4, 5, 6});
+#else
+  return __builtin_shuffle(v, s, (UDSP_VI){4, 0, 1, 2});
+#endif
+#endif
+}
+
 static inline float udsp_vsum(UDSP_VF v) {
   float s = 0.0f;
   for (int j = 0; j < UDSP_W; j++) {
@@ -192,6 +211,17 @@ static inline float udsp_vhmin(UDSP_VF v) { return v; }
 #define UDSP_UNROLL
 #else
 #define UDSP_UNROLL _Pragma("GCC unroll 16")
+#endif
+
+/* on a function running a stereo pair's two serial chains side by side:
+ * gcc's SLP vectoriser packs the pair into 2-lane vectors and clears
+ * their upper lanes after every operation (a movq on the chain), which
+ * doubles the chain's latency (the EQ, the crossover: 1.6-1.8x slower
+ * than as two scalar chains). The same operations per lane either way */
+#if defined(__GNUC__) && !defined(__clang__)
+#define UDSP_NO_SLP __attribute__((optimize("no-tree-slp-vectorize")))
+#else
+#define UDSP_NO_SLP
 #endif
 
 #endif

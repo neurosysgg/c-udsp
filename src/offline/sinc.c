@@ -168,55 +168,105 @@ void udsp_sinc_span(const UDSP_SINC *s, uint64_t first, size_t n, int64_t *lo,
   *hi = i1 + (int64_t)(s->taps / 2) + 1;
 }
 
-/* the dot product as four lanes, lane j summing taps j, j + 4, ... in
- * order, then (0 + 1) + (2 + 3): the vector and the plain build add the
- * same numbers in the same order. Row b is a second row to blend in by
- * mu (the interpolated table), NULL for none. x == NULL: read through
- * the window's bounds (the input's edges), silence outside. */
-static float dot(const float *a, const float *b, float mu, const float *x,
-                 const float *in, int64_t in_first, size_t in_n, int64_t j0,
-                 uint32_t taps) {
-  float acc[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+/* taps k .. k + 3 of row a (blended into row b by mu: the interpolated
+ * table; b NULL for none) times the input's. x == NULL: read through the
+ * window's bounds (the input's edges), silence outside. */
 #if defined(UDSP_HAVE_V4)
-  UDSP_V4 v = {0.0f, 0.0f, 0.0f, 0.0f};
-  for (uint32_t k = 0; k < taps; k += 4) {
-    UDSP_V4 c = udsp_v4load(a + k);
-    if (b) {
-      c = c + (UDSP_V4){mu, mu, mu, mu} * (udsp_v4load(b + k) - c);
-    }
-    UDSP_V4 xv;
-    if (x) {
-      xv = udsp_v4load(x + k);
-    } else {
-      float t[4];
-      for (int j = 0; j < 4; j++) {
-        int64_t at = j0 + (int64_t)k + j - in_first;
-        t[j] = at >= 0 && (uint64_t)at < in_n ? in[at] : 0.0f;
-      }
-      xv = udsp_v4load(t);
-    }
-    v = v + c * xv;
+static inline UDSP_V4 block(const float *a, const float *b, float mu,
+                            const float *x, const float *in, int64_t in_first,
+                            size_t in_n, int64_t j0, uint32_t k) {
+  UDSP_V4 c = udsp_v4load(a + k);
+  if (b) {
+    c = c + (UDSP_V4){mu, mu, mu, mu} * (udsp_v4load(b + k) - c);
   }
-  udsp_v4store(acc, v);
-#else
-  for (uint32_t k = 0; k < taps; k += 4) {
+  UDSP_V4 xv;
+  if (x) {
+    xv = udsp_v4load(x + k);
+  } else {
+    float t[4];
     for (int j = 0; j < 4; j++) {
-      float c = a[k + j];
-      if (b) {
-        c = c + mu * (b[k + j] - c);
-      }
-      float xv;
-      if (x) {
-        xv = x[k + j];
-      } else {
-        int64_t at = j0 + (int64_t)k + j - in_first;
-        xv = at >= 0 && (uint64_t)at < in_n ? in[at] : 0.0f;
-      }
-      acc[j] = acc[j] + c * xv;
+      int64_t at = j0 + (int64_t)k + j - in_first;
+      t[j] = at >= 0 && (uint64_t)at < in_n ? in[at] : 0.0f;
     }
+    xv = udsp_v4load(t);
+  }
+  return c * xv;
+}
+#else
+static inline void block(const float *a, const float *b, float mu,
+                         const float *x, const float *in, int64_t in_first,
+                         size_t in_n, int64_t j0, uint32_t k, float *acc) {
+  for (int j = 0; j < 4; j++) {
+    float c = a[k + j];
+    if (b) {
+      c = c + mu * (b[k + j] - c);
+    }
+    float xv;
+    if (x) {
+      xv = x[k + j];
+    } else {
+      int64_t at = j0 + (int64_t)k + j - in_first;
+      xv = at >= 0 && (uint64_t)at < in_n ? in[at] : 0.0f;
+    }
+    acc[j] = acc[j] + c * xv;
+  }
+}
+#endif
+
+/* the dot product as sixteen lanes: the 4-tap blocks taken in turn by
+ * four 4-lane sums (block n by sum n & 3, a sum's lane j summing its
+ * blocks' tap j in order), then the sums (0 + 1) + (2 + 3) and their
+ * lanes the same way. Four chains in flight instead of one (one was ~3
+ * cycles a block of latency), and the vector and the plain build add
+ * the same numbers in the same order. */
+static inline __attribute__((always_inline)) float
+dot_as(const float *a, const float *b, float mu, const float *x,
+       const float *in, int64_t in_first, size_t in_n, int64_t j0,
+       uint32_t taps, const int blend, const int direct) {
+  /* constants where inlined: the tests leave the loop (gcc -O2 doesn't
+   * unswitch it itself) */
+  b = blend ? b : NULL;
+  x = direct ? x : NULL;
+  float acc[4];
+  uint32_t k = 0;
+#if defined(UDSP_HAVE_V4)
+  UDSP_V4 v[4] = {{0}, {0}, {0}, {0}};
+  for (; k + 16 <= taps; k += 16) {
+    UDSP_UNROLL
+    for (uint32_t q = 0; q < 4; q++) {
+      v[q] = v[q] + block(a, b, mu, x, in, in_first, in_n, j0, k + 4 * q);
+    }
+  }
+  for (uint32_t q = 0; k < taps; k += 4, q++) {
+    v[q] = v[q] + block(a, b, mu, x, in, in_first, in_n, j0, k);
+  }
+  udsp_v4store(acc, (v[0] + v[1]) + (v[2] + v[3]));
+#else
+  float v[4][4] = {{0}};
+  for (; k + 16 <= taps; k += 16) {
+    for (uint32_t q = 0; q < 4; q++) {
+      block(a, b, mu, x, in, in_first, in_n, j0, k + 4 * q, v[q]);
+    }
+  }
+  for (uint32_t q = 0; k < taps; k += 4, q++) {
+    block(a, b, mu, x, in, in_first, in_n, j0, k, v[q]);
+  }
+  for (int j = 0; j < 4; j++) {
+    acc[j] = (v[0][j] + v[1][j]) + (v[2][j] + v[3][j]);
   }
 #endif
   return (acc[0] + acc[1]) + (acc[2] + acc[3]);
+}
+
+static float dot(const float *a, const float *b, float mu, const float *x,
+                 const float *in, int64_t in_first, size_t in_n, int64_t j0,
+                 uint32_t taps) {
+  if (b) {
+    return x ? dot_as(a, b, mu, x, in, in_first, in_n, j0, taps, 1, 1)
+             : dot_as(a, b, mu, x, in, in_first, in_n, j0, taps, 1, 0);
+  }
+  return x ? dot_as(a, b, mu, x, in, in_first, in_n, j0, taps, 0, 1)
+           : dot_as(a, b, mu, x, in, in_first, in_n, j0, taps, 0, 0);
 }
 
 void udsp_sinc_run(const UDSP_SINC *s, const float *in, int64_t in_first,
@@ -321,17 +371,20 @@ void udsp_vsinc_run(const UDSP_VSINC *k, const float *in, uint32_t channels,
     const int64_t j0 = f - half + 1;
     const double p = (double)fr / (double)UDSP_VSINC_ONE;
     float sum4[4] = {0.0f, 0.0f, 0.0f, 0.0f};
-    for (uint32_t t = 0; t < taps; t++) {
-      double x = (double)(j0 + (int64_t)t - f) - p;
-      x = (x < 0.0 ? -x : x) * scale;
-      float v = 0.0f;
-      if (x < (double)limit) {
-        const uint32_t i = (uint32_t)x;
-        const float mu = (float)(x - (double)i);
-        v = k->table[i] + mu * (k->table[i + 1] - k->table[i]);
+    for (uint32_t t = 0; t < taps; t += 4) { /* taps: a multiple of 4 */
+      UDSP_UNROLL
+      for (uint32_t j = 0; j < 4; j++) {
+        double x = (double)(j0 + (int64_t)(t + j) - f) - p;
+        x = (x < 0.0 ? -x : x) * scale;
+        float v = 0.0f;
+        if (x < (double)limit) {
+          const uint32_t i = (uint32_t)x;
+          const float mu = (float)(x - (double)i);
+          v = k->table[i] + mu * (k->table[i + 1] - k->table[i]);
+        }
+        w[t + j] = v;
+        sum4[j] = sum4[j] + v;
       }
-      w[t] = v;
-      sum4[t & 3] = sum4[t & 3] + v;
     }
     const float sum = (sum4[0] + sum4[1]) + (sum4[2] + sum4[3]);
     const float norm = sum != 0.0f ? 1.0f / sum : 0.0f;
@@ -339,13 +392,23 @@ void udsp_vsinc_run(const UDSP_VSINC *k, const float *in, uint32_t channels,
         j0 >= in_first && j0 + (int64_t)taps <= in_first + (int64_t)in_n;
     for (uint32_t c = 0; c < channels; c++) {
       float acc[4] = {0.0f, 0.0f, 0.0f, 0.0f};
-      for (uint32_t t = 0; t < taps; t += 4) {
-        for (uint32_t j = 0; j < 4; j++) {
-          const int64_t r = j0 + (int64_t)(t + j) - in_first;
-          const float xv = inside || (r >= 0 && (uint64_t)r < in_n)
-                               ? in[(size_t)r * channels + c]
-                               : 0.0f;
-          acc[j] = acc[j] + w[t + j] * xv;
+      if (inside) {
+        const float *x = in + (size_t)(j0 - in_first) * channels + c;
+        for (uint32_t t = 0; t < taps; t += 4) {
+          UDSP_UNROLL
+          for (uint32_t j = 0; j < 4; j++) {
+            acc[j] = acc[j] + w[t + j] * x[(size_t)(t + j) * channels];
+          }
+        }
+      } else {
+        for (uint32_t t = 0; t < taps; t += 4) {
+          for (uint32_t j = 0; j < 4; j++) {
+            const int64_t r = j0 + (int64_t)(t + j) - in_first;
+            const float xv = r >= 0 && (uint64_t)r < in_n
+                                 ? in[(size_t)r * channels + c]
+                                 : 0.0f;
+            acc[j] = acc[j] + w[t + j] * xv;
+          }
         }
       }
       y[c] = ((acc[0] + acc[1]) + (acc[2] + acc[3])) * norm;

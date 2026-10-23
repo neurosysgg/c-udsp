@@ -6,25 +6,6 @@
 
 #define TURNS (1.0f / 4294967296.0f)
 
-static float sine_turns(float t) {
-  /* [0,1) -> [-0.5,0.5) (odd about the half turn), then folded to
-   * |x| <= 0.25 (symmetric about the quarter turn): five terms suffice */
-  float x = t >= 0.5f ? t - 1.0f : t;
-  if (x > 0.25f) {
-    x = 0.5f - x;
-  } else if (x < -0.25f) {
-    x = -0.5f - x;
-  }
-  const float u = 6.283185307179586f * x;
-  const float u2 = u * u;
-  float p = -1.0f / 362880.0f;
-  p = p * u2 + (1.0f / 5040.0f);
-  p = p * u2 - (1.0f / 120.0f);
-  p = p * u2 + (1.0f / 6.0f);
-  p = p * u2 - 1.0f;
-  return -u * p;
-}
-
 static float poly_blep(float t, float dt) {
   if (dt <= 0.0f) {
     return 0.0f;
@@ -56,7 +37,7 @@ static float wave_at(UDSP_OSC_WAVE w, float t, float dt) {
   case UDSP_OSC_TRIANGLE:
     return t < 0.5f ? 4.0f * t - 1.0f : 3.0f - 4.0f * t;
   default:
-    return sine_turns(t);
+    return udsp_osc_sine(t);
   }
 }
 
@@ -207,8 +188,6 @@ void udsp_osc_render_pm(UDSP_OSC *o, const float *pm, float *out, size_t n) {
   }
   o->phase = phase;
 }
-
-float udsp_osc_sine(float turns) { return sine_turns(turns); }
 
 static const char WAVE_NAMES[UDSP_OSC_WAVES][9] = {
     "sine", "square", "saw", "triangle", "noise",

@@ -5,11 +5,9 @@
 
 # the analyzers can't see a header's contract: r128's channels are
 # 1..UDSP_R128_MAX_CHANNELS (r128.h), udsp_sinc_run's input is never NULL
-# (dot() takes it or a window into it), a vsinc's taps are rounded up to a
-# multiple of 4 (udsp_vsinc_run), so every w[t + j] read was written
+# (dot() takes it or a window into it)
 src/analysis/r128.c: Either the condition 'channels<4' is redundant or the array 'surround[9][8]' is accessed at index surround[9][*], which is out of bounds. [cppcheck:arrayIndexOutOfBoundsCond]
 src/offline/sinc.c: Array access (from variable 'in') results in a null pointer dereference [core.NullDereference]
-src/offline/sinc.c: The left operand of '*' is a garbage value [core.UndefinedBinaryOperatorResult]
 
 # every operand is int64_t: cppcheck's sign conversion isn't there
 src/offline/stretch.c: Expression 'm' can have a negative value. That is converted to an unsigned value and used in an unsigned calculation. [cppcheck:signConversion]
@@ -26,6 +24,7 @@ tests/xover_test.c: result of integer division used in a floating point context;
 # the bit-exact checks: results compared as bytes on purpose -- the same
 # bits, not near values
 tests/disperse_test.c: comparing object representation of type 'UDSP_DISPERSE_STAGE' which does not have a unique object representation; consider comparing the members of the object manually [bugprone-suspicious-memory-comparison,cert-exp42-c,cert-flp37-c]
+tests/disperse_test.c: comparing object representation of type 'float' which does not have a unique object representation; consider comparing the values manually [bugprone-suspicious-memory-comparison,cert-exp42-c,cert-flp37-c]
 tests/dither_test.c: comparing object representation of type 'float' which does not have a unique object representation; consider comparing the values manually [bugprone-suspicious-memory-comparison,cert-exp42-c,cert-flp37-c]
 tests/fft_test.c: comparing object representation of type 'float' which does not have a unique object representation; consider comparing the values manually [bugprone-suspicious-memory-comparison,cert-exp42-c,cert-flp37-c]
 tests/openv_test.c: comparing object representation of type 'float' which does not have a unique object representation; consider comparing the values manually [bugprone-suspicious-memory-comparison,cert-exp42-c,cert-flp37-c]

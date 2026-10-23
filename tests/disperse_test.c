@@ -87,8 +87,39 @@ static void test_fan(void) {
                    "the first 8 stages the same with 16");
 }
 
+/* the output the same bits however the blocks are cut: the stages run
+ * a wavefront in vector lanes, whose first and last steps of a block
+ * leave the lanes without a frame alone (blocks shorter than it too) */
+static void test_blocks(void) {
+  static float whole[2 * 4096], cut[2 * 4096];
+  for (int i = 0; i < 2 * 4096; i++) {
+    whole[i] = (float)sin(0.37 * i) * (i % 7 == 0 ? -1.0f : 0.5f);
+  }
+  memcpy(cut, whole, sizeof whole);
+  static const size_t BLOCK[] = {1, 3, 2, 17, 5, 64, 31, 1, 250};
+  static const float AMOUNT[] = {64, 40.5f, 17, 7};
+  for (int a = 0; a < 4; a++) {
+    static UDSP_DISPERSE d1, d2;
+    udsp_disperse_reset(&d1);
+    udsp_disperse_reset(&d2);
+    udsp_disperse_set(&d1, AMOUNT[a], 700.0f, 2.0f, 2.0f, RATE);
+    udsp_disperse_set(&d2, AMOUNT[a], 700.0f, 2.0f, 2.0f, RATE);
+    udsp_disperse_stereo(&d1, whole, 4096);
+    for (size_t at = 0, b = 0; at < 4096; b++) {
+      size_t k = BLOCK[b % 9];
+      k = k > 4096 - at ? 4096 - at : k;
+      udsp_disperse_stereo(&d2, cut + 2 * at, k);
+      at += k;
+    }
+    UDSP_TEST_ASSERT(!memcmp(whole, cut, sizeof whole),
+                     "%.1f stages: blocks of 1 .. 250 the bits of one block",
+                     (double)AMOUNT[a]);
+  }
+}
+
 int main(void) {
   printf("disperse_test\n");
+  test_blocks();
   test_level();
   test_smear();
   test_fan();

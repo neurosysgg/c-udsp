@@ -15,7 +15,7 @@
  * converted once, not as they play). Its zero crossings each side set
  * the transition band: UDSP_SINC_ZEROS puts the passband's edge at
  * 0.4695 of the lower rate (20.7 kHz at 44.1). The table is built
- * without libm (its own sine and I0), and the dot product is four
+ * without libm (its own sine and I0), and the dot product is sixteen
  * lanes in a fixed order whatever the target, so every build gives the
  * same bits. The input comes in windows -- one channel, any part of it
  * -- and the output is the same however it's cut. */

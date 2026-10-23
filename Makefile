@@ -88,7 +88,9 @@ test-valgrind: $(TEST_RUN)
 # -O2/-O3, baseline (SSE2) and x86-64-v3 (AVX2+FMA), and the plain-C one
 # (UDSP_SCALAR, the reference the vector paths are held to), and ASan+UBSan;
 # bench/ulp.c's tolerances too, in each. Each variant builds in
-# build/variant/NAME/, so a second run only recompiles what changed
+# build/variant/NAME/, so a second run only recompiles what changed (NAME
+# without '=': a .d file's rule naming it would read as an assignment,
+# and the headers would stop counting)
 VARIANTS = gcc:-O2 gcc:-O3 gcc:-O2,-march=x86-64-v3 gcc:-O3,-march=x86-64-v3 \
 	gcc:-O2,-DUDSP_SCALAR clang:-O2 clang:-O3,-march=x86-64-v3 \
 	clang:-O2,-DUDSP_SCALAR \
@@ -98,7 +100,7 @@ test-variants:
 	@mkdir -p build/variant
 	@for v in $(VARIANTS); do \
 	  cc=$${v%%:*}; flags=$$(echo $${v#*:} | tr , ' '); \
-	  dir=build/variant/$$(echo $$v | tr -c 'a-zA-Z0-9=\n' _); \
+	  dir=build/variant/$$(echo $$v | tr -c 'a-zA-Z0-9\n' _); \
 	  $(MAKE) --no-print-directory -s -j$(TEST_JOBS) CC=$$cc OPT= VFLAGS="$$flags" \
 	    SAN= COV= B=$$dir variant-run > $$dir.log 2>&1; rc=$$?; \
 	  printf '%-6s %-32s %s\n' $$cc "$$flags" $$([ $$rc = 0 ] && echo ok || echo FAILED); \

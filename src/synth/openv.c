@@ -104,25 +104,51 @@ void udsp_openv_restart(UDSP_OPENV *e) {
   }
 }
 
-void udsp_openv_render(UDSP_OPENV *e, float *out, size_t n) {
-  for (size_t i = 0; i < n; i++) {
-    out[i] = e->value;
-    if (e->stage == UDSP_OPENV_IDLE || e->stage == UDSP_OPENV_SUSTAIN) {
-      continue;
+/* a segment's frames short of its landing, the stage tested once */
+static void run(UDSP_OPENV *e, float *out, size_t n) {
+  const double from = e->from, d = e->to - e->from;
+  uint32_t pos = e->pos;
+  float value = e->value;
+  if (e->den == 0.0) {
+    const double len = e->len;
+    for (size_t i = 0; i < n; i++) {
+      out[i] = value;
+      pos++;
+      value = (float)(from + d * ((double)pos / len));
     }
-    e->pos++;
-    if (e->pos >= e->len) {
+  } else {
+    const double r = e->r, den = e->den;
+    double u = e->u;
+    for (size_t i = 0; i < n; i++) {
+      out[i] = value;
+      pos++;
+      u *= r;
+      value = (float)(from + d * ((u - 1.0) / den));
+    }
+    e->u = u;
+  }
+  e->pos = pos;
+  e->value = value;
+}
+
+void udsp_openv_render(UDSP_OPENV *e, float *out, size_t n) {
+  size_t i = 0;
+  while (i < n) {
+    if (e->stage == UDSP_OPENV_IDLE || e->stage == UDSP_OPENV_SUSTAIN) {
+      for (; i < n; i++) {
+        out[i] = e->value;
+      }
+      return;
+    }
+    const size_t left = e->pos < e->len ? e->len - e->pos - 1 : 0;
+    const size_t k = n - i < left ? n - i : left;
+    run(e, out + i, k);
+    i += k;
+    if (i < n) { /* the landing */
+      out[i++] = e->value;
+      e->pos++;
       e->value = e->to;
       next(e);
-      continue;
     }
-    double y;
-    if (e->den == 0.0) {
-      y = (double)e->pos / e->len;
-    } else {
-      e->u *= e->r;
-      y = (e->u - 1.0) / e->den;
-    }
-    e->value = (float)(e->from + (e->to - e->from) * y);
   }
 }

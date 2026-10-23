@@ -269,9 +269,11 @@ dither.c    UDSP_DITHER: TPDF dither ahead of a quantizer (two uniform
 The sinc (session 229, ctui-daw's d3d) keeps the same rules where they
 matter for an offline kernel: its table comes from a sine and an I0 of
 its own in double (libm's sin may round differently between libcs), and
-its dot product runs four lanes in a fixed order -- lane j summing taps
-j, j + 4, ..., then (0 + 1) + (2 + 3) -- whatever the vector width, so a
-file converted on any build is the same file. The caller owns the table
+its dot product runs sixteen lanes in a fixed order -- the 4-tap
+blocks taken in turn by four 4-lane sums (block n by sum n & 3), lane j
+of a sum adding its blocks' tap j in order, then the sums and the lanes
+(0 + 1) + (2 + 3) -- whatever the vector width, so a file converted on
+any build is the same file (since session 255; four lanes before). The caller owns the table
 (`udsp_sinc_floats`).
 
 The varispeed sinc (session 238, ctui-daw's d7) is the same kernel's

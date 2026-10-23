@@ -651,6 +651,12 @@ static double k_bands(const float *x, size_t n) {
   memcpy(g_got, x, n * sizeof(float));
   udsp_disperse_stereo(&d, g_got, n / 2);
   hash_floats(g_got, n);
+  /* again in short blocks: the wavefront's edges, a lane at a time */
+  memcpy(g_got, x, n * sizeof(float));
+  for (size_t at = 0, k = 1; at < n / 2; at += k, k = k % 13 + 2) {
+    udsp_disperse_stereo(&d, g_got + 2 * at, k < n / 2 - at ? k : n / 2 - at);
+  }
+  hash_floats(g_got, n);
   for (int rms = 0; rms < 2; rms++) {
     UDSP_UDCOMP c;
     udsp_udcomp_reset(&c);

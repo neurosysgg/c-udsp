@@ -114,18 +114,28 @@ void udsp_fmop_render(UDSP_FMOP *o, const float *pm, const float *amp,
   const int level = o->wave ? udsp_wtab_level(o->inc) : 0;
   uint32_t phase = o->phase;
   float y1 = o->y1, y2 = o->y2;
-  for (size_t i = 0; i < n; i++) {
-    float t = (float)phase * TURNS + o->feedback * (0.5f * (y1 + y2));
-    if (pm) {
-      t += pm[i];
+  if (o->wave && o->feedback == 0.0f) { /* no chain: the samples overlap */
+    for (size_t i = 0; i < n; i++) {
+      const float t = (float)phase * TURNS;
+      y2 = y1;
+      y1 = amp[i] * udsp_wtab_at(o->wave, level, wrap(pm ? t + pm[i] : t));
+      out[i] = y1;
+      phase += o->inc;
     }
-    t = wrap(t);
-    const float v =
-        o->wave ? udsp_wtab_at(o->wave, level, t) : udsp_osc_sine(t);
-    y2 = y1;
-    y1 = amp[i] * v;
-    out[i] = y1;
-    phase += o->inc;
+  } else {
+    for (size_t i = 0; i < n; i++) {
+      float t = (float)phase * TURNS + o->feedback * (0.5f * (y1 + y2));
+      if (pm) {
+        t += pm[i];
+      }
+      t = wrap(t);
+      const float v =
+          o->wave ? udsp_wtab_at(o->wave, level, t) : udsp_osc_sine(t);
+      y2 = y1;
+      y1 = amp[i] * v;
+      out[i] = y1;
+      phase += o->inc;
+    }
   }
   o->phase = phase;
   o->y1 = y1;

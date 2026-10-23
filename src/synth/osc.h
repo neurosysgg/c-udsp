@@ -56,8 +56,26 @@ void udsp_osc_render(UDSP_OSC *o, float *out, size_t n);
 void udsp_osc_render_pm(UDSP_OSC *o, const float *pm, float *out, size_t n);
 
 /* the oscillator's sine at a phase in turns, 0 <= turns < 1 (an LFO's,
- * a filter's coefficient) */
-float udsp_osc_sine(float turns);
+ * a filter's coefficient; inline: an FM operator's feedback waits on it
+ * every sample) */
+static inline float udsp_osc_sine(float turns) {
+  /* [0,1) -> [-0.5,0.5) (odd about the half turn), then folded to
+   * |x| <= 0.25 (symmetric about the quarter turn): five terms suffice */
+  float x = turns >= 0.5f ? turns - 1.0f : turns;
+  if (x > 0.25f) {
+    x = 0.5f - x;
+  } else if (x < -0.25f) {
+    x = -0.5f - x;
+  }
+  const float u = 6.283185307179586f * x;
+  const float u2 = u * u;
+  float p = -1.0f / 362880.0f;
+  p = p * u2 + (1.0f / 5040.0f);
+  p = p * u2 - (1.0f / 120.0f);
+  p = p * u2 + (1.0f / 6.0f);
+  p = p * u2 - 1.0f;
+  return -u * p;
+}
 
 /* "sine", "square", ... <-> the wave; UDSP_OSC_WAVES for an unknown name */
 UDSP_OSC_WAVE udsp_osc_wave_by_name(const char *name);
