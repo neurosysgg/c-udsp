@@ -65,6 +65,12 @@ void udsp_eq_ramp(UDSP_EQ_BAND *b, const UDSP_EQ_BAND *to, unsigned frames);
 /* filters frames interleaved stereo frames in place */
 void udsp_eq_stereo(UDSP_EQ_BAND *b, float *io, size_t frames);
 
+/* n bands in series over frames interleaved stereo frames in place: the
+ * same bits as udsp_eq_stereo() on each in turn, faster -- the bands'
+ * sections run side by side (a wavefront in vector lanes) where one
+ * band's wait on its own recurrence. A band ramping runs on its own. */
+void udsp_eq_chain(UDSP_EQ_BAND *const *bands, int n, float *io, size_t frames);
+
 /* the band's gain (linear, not dB) at hz: an EQ's curve on a screen */
 float udsp_eq_response(const UDSP_EQ_BAND *b, float hz, unsigned rate);
 

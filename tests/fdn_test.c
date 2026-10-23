@@ -143,11 +143,27 @@ static void test_predelay(void) {
   free(mem);
 }
 
+/* idle: the modulation where that much silence through it leaves it */
+static void test_idle(void) {
+  UDSP_FDN a, b;
+  float *ma = fdn_new(&a), *mb = fdn_new(&b);
+  enum { N = 3001 };
+  static float zero[N * 2], wet[N * 2];
+  udsp_fdn_stereo(&a, zero, wet, N);
+  udsp_fdn_idle(&b, 1000);
+  udsp_fdn_idle(&b, N - 1000);
+  UDSP_TEST_ASSERT(a.mc == b.mc && a.ms == b.ms && a.t == b.t,
+                   "idle 3001 frames: the modulation silence leaves");
+  free(ma);
+  free(mb);
+}
+
 int main(void) {
   printf("fdn_test\n");
   test_line();
   test_decay();
   test_stable_and_blocks();
   test_predelay();
+  test_idle();
   return udsp_test_summary();
 }

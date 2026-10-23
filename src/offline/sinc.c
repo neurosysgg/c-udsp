@@ -340,6 +340,117 @@ void udsp_vsinc_span(const UDSP_VSINC *k, int64_t frame, uint32_t frac,
   *hi = frame + (int64_t)(last >> 32) + r + 1;
 }
 
+/* an output's weights, taps (a multiple of 4) of them from the tap at
+ * d0 frames from its frame (1 - the half width), p its fraction: four
+ * taps a step, each lane the scalar's operations (the distance in double,
+ * the table read linearly) and sum4 the four lanes' sums */
+static void vs_weights(const float *table, int64_t d0, double p, double scale,
+                       uint32_t limit, uint32_t taps, float *w, float *sum4) {
+#if defined(__SSE2__) && UDSP_W > 1
+  __m128 sum = _mm_setzero_ps();
+  const __m128i lim = _mm_set1_epi32((int)limit);
+#if !defined(__AVX__)
+  const __m128d sign = _mm_set1_pd(-0.0), sc = _mm_set1_pd(scale),
+                pv = _mm_set1_pd(p);
+#endif
+  for (uint32_t t = 0; t < taps; t += 4) {
+    const double d = (double)(d0 + (int64_t)t);
+#if defined(__AVX__)
+    const __m256d x0 = _mm256_sub_pd(
+        _mm256_add_pd(_mm256_set1_pd(d), _mm256_set_pd(3.0, 2.0, 1.0, 0.0)),
+        _mm256_set1_pd(p));
+    const __m256d x = _mm256_mul_pd(_mm256_andnot_pd(_mm256_set1_pd(-0.0), x0),
+                                    _mm256_set1_pd(scale));
+    const __m128i i = _mm256_cvttpd_epi32(x);
+    const __m128 mu = _mm256_cvtpd_ps(_mm256_sub_pd(x, _mm256_cvtepi32_pd(i)));
+#else
+    const __m128d xa = _mm_mul_pd(
+        _mm_andnot_pd(
+            sign,
+            _mm_sub_pd(_mm_add_pd(_mm_set1_pd(d), _mm_set_pd(1.0, 0.0)), pv)),
+        sc);
+    const __m128d xb = _mm_mul_pd(
+        _mm_andnot_pd(
+            sign,
+            _mm_sub_pd(_mm_add_pd(_mm_set1_pd(d), _mm_set_pd(3.0, 2.0)), pv)),
+        sc);
+    const __m128i ia = _mm_cvttpd_epi32(xa), ib = _mm_cvttpd_epi32(xb);
+    const __m128i i = _mm_unpacklo_epi64(ia, ib);
+    const __m128 mu =
+        _mm_movelh_ps(_mm_cvtpd_ps(_mm_sub_pd(xa, _mm_cvtepi32_pd(ia))),
+                      _mm_cvtpd_ps(_mm_sub_pd(xb, _mm_cvtepi32_pd(ib))));
+#endif
+    /* x < limit, limit whole: its whole part below it; the others read
+     * the table's start and weigh 0 */
+    const __m128i ok = _mm_cmplt_epi32(i, lim);
+    const __m128i at = _mm_and_si128(i, ok);
+#if defined(__AVX2__)
+    const __m128 t0 = _mm_i32gather_ps(table, at, 4);
+    const __m128 t1 = _mm_i32gather_ps(table + 1, at, 4);
+#else
+    int ix[4];
+    _mm_storeu_si128((__m128i *)ix, at);
+    const __m128 t0 =
+        _mm_set_ps(table[ix[3]], table[ix[2]], table[ix[1]], table[ix[0]]);
+    const __m128 t1 = _mm_set_ps(table[ix[3] + 1], table[ix[2] + 1],
+                                 table[ix[1] + 1], table[ix[0] + 1]);
+#endif
+    const __m128 v =
+        _mm_and_ps(_mm_add_ps(t0, _mm_mul_ps(mu, _mm_sub_ps(t1, t0))),
+                   _mm_castsi128_ps(ok));
+    _mm_storeu_ps(w + t, v);
+    sum = _mm_add_ps(sum, v);
+  }
+  _mm_storeu_ps(sum4, sum);
+#else
+  for (int j = 0; j < 4; j++) {
+    sum4[j] = 0.0f;
+  }
+  for (uint32_t t = 0; t < taps; t += 4) {
+    UDSP_UNROLL
+    for (uint32_t j = 0; j < 4; j++) {
+      double x = (double)(d0 + (int64_t)(t + j)) - p;
+      x = (x < 0.0 ? -x : x) * scale;
+      float v = 0.0f;
+      if (x < (double)limit) {
+        const uint32_t i = (uint32_t)x;
+        const float mu = (float)(x - (double)i);
+        v = table[i] + mu * (table[i + 1] - table[i]);
+      }
+      w[t + j] = v;
+      sum4[j] = sum4[j] + v;
+    }
+  }
+#endif
+}
+
+/* both channels of a stereo input's taps (all inside it) weighed: the
+ * scalar loop's four accumulators a channel, in lanes */
+static void vs_dot2(const float *w, const float *x, uint32_t taps, float norm,
+                    float *y) {
+#if UDSP_HAVE_V4
+  UDSP_V4 al = {0.0f, 0.0f, 0.0f, 0.0f}, ar = al;
+  for (uint32_t t = 0; t < taps; t += 4) {
+    const UDSP_V4 a = udsp_v4load(x + 2 * t), b = udsp_v4load(x + 2 * t + 4);
+    const UDSP_V4 wv = udsp_v4load(w + t);
+    al = al + wv * UDSP_SHUF4(a, b, 0, 2, 4, 6);
+    ar = ar + wv * UDSP_SHUF4(a, b, 1, 3, 5, 7);
+  }
+  y[0] = ((al[0] + al[1]) + (al[2] + al[3])) * norm;
+  y[1] = ((ar[0] + ar[1]) + (ar[2] + ar[3])) * norm;
+#else
+  for (uint32_t c = 0; c < 2; c++) {
+    float acc[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+    for (uint32_t t = 0; t < taps; t += 4) {
+      for (uint32_t j = 0; j < 4; j++) {
+        acc[j] = acc[j] + w[t + j] * x[(size_t)(t + j) * 2 + c];
+      }
+    }
+    y[c] = ((acc[0] + acc[1]) + (acc[2] + acc[3])) * norm;
+  }
+#endif
+}
+
 void udsp_vsinc_run(const UDSP_VSINC *k, const float *in, uint32_t channels,
                     int64_t in_first, size_t in_n, int64_t frame, uint32_t frac,
                     uint64_t step, float *out, size_t out_stride, size_t n) {
@@ -370,28 +481,19 @@ void udsp_vsinc_run(const UDSP_VSINC *k, const float *in, uint32_t channels,
     /* the weights, for every channel: taps j0 .. j0 + taps - 1 */
     const int64_t j0 = f - half + 1;
     const double p = (double)fr / (double)UDSP_VSINC_ONE;
-    float sum4[4] = {0.0f, 0.0f, 0.0f, 0.0f};
-    for (uint32_t t = 0; t < taps; t += 4) { /* taps: a multiple of 4 */
-      UDSP_UNROLL
-      for (uint32_t j = 0; j < 4; j++) {
-        double x = (double)(j0 + (int64_t)(t + j) - f) - p;
-        x = (x < 0.0 ? -x : x) * scale;
-        float v = 0.0f;
-        if (x < (double)limit) {
-          const uint32_t i = (uint32_t)x;
-          const float mu = (float)(x - (double)i);
-          v = k->table[i] + mu * (k->table[i + 1] - k->table[i]);
-        }
-        w[t + j] = v;
-        sum4[j] = sum4[j] + v;
-      }
-    }
+    float sum4[4];
+    vs_weights(k->table, 1 - half, p, scale, limit, taps, w, sum4);
     const float sum = (sum4[0] + sum4[1]) + (sum4[2] + sum4[3]);
     const float norm = sum != 0.0f ? 1.0f / sum : 0.0f;
     const int inside =
         j0 >= in_first && j0 + (int64_t)taps <= in_first + (int64_t)in_n;
     for (uint32_t c = 0; c < channels; c++) {
       float acc[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+      if (inside && channels == 2 && c == 0) {
+        /* both channels at once: y[1]'s too */
+        vs_dot2(w, in + (size_t)(j0 - in_first) * 2, taps, norm, y);
+        break;
+      }
       if (inside) {
         const float *x = in + (size_t)(j0 - in_first) * channels + c;
         for (uint32_t t = 0; t < taps; t += 4) {

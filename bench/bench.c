@@ -368,6 +368,23 @@ static void k_eq48(void) {
   g_sink = g_out[3];
 }
 
+/* EQ Eight as a mix uses it: a 48 dB low cut and three bells, seven
+ * sections -- band by band, and as one chain */
+static UDSP_EQ_BAND g_eq8[4];
+static void k_eq_bands(void) {
+  memcpy(g_out, g_in, N * sizeof(float));
+  for (int i = 0; i < 4; i++) {
+    udsp_eq_stereo(&g_eq8[i], g_out, N / 2);
+  }
+  g_sink = g_out[3];
+}
+static void k_eq_chain(void) {
+  memcpy(g_out, g_in, N * sizeof(float));
+  UDSP_EQ_BAND *const b[4] = {&g_eq8[0], &g_eq8[1], &g_eq8[2], &g_eq8[3]};
+  udsp_eq_chain(b, 4, g_out, N / 2);
+  g_sink = g_out[3];
+}
+
 /* a 4 s response at 48 kHz in partitions of 512 (375) and 256 (750):
  * a block's push, multiply-adds and inverse -- per frame, what one
  * channel of a convolution reverb costs */
@@ -552,6 +569,8 @@ static const KERNEL KERNELS[] = {
     {"svf", N, k_svf},
     {"eq", N, k_eq},
     {"eq48", N, k_eq48},
+    {"eq_bands", N / 2, k_eq_bands},
+    {"eq_chain", N / 2, k_eq_chain},
     {"comp", N / 2, k_comp},
     {"gate", N / 2, k_gate},
     {"fft_real_inverse", N, k_fft_real_inverse},
@@ -671,6 +690,12 @@ int main(int argc, char **argv) {
   udsp_eq_set(&g_eq_bell, UDSP_EQ_BELL, 1200.0f, 1.0f, 6.0f, 48000);
   udsp_eq_reset(&g_eq_cut);
   udsp_eq_set(&g_eq_cut, UDSP_EQ_LOW_CUT_48, 120.0f, 0.71f, 0.0f, 48000);
+  for (int i = 0; i < 4; i++) {
+    static const float HZ[4] = {30.0f, 250.0f, 2500.0f, 6000.0f};
+    udsp_eq_reset(&g_eq8[i]);
+    udsp_eq_set(&g_eq8[i], i ? UDSP_EQ_BELL : UDSP_EQ_LOW_CUT_48, HZ[i], 0.71f,
+                i ? -2.0f : 0.0f, 48000);
+  }
   udsp_svf_reset(&g_svf);
   udsp_svf_set(&g_svf, 1200.0f, 0.5f, UDSP_SVF_LOW, 48000);
   udsp_zdf_reset(&g_zdf);

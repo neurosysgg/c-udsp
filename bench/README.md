@@ -520,3 +520,27 @@ Found on the way: `make test-variants`'s directories kept the `=` of
 `-march=x86-64-v3`, so a `.d` file's rule read as a variable assignment
 and the -march variants ignored header changes (a header-only change
 linked stale objects). The names drop it now.
+
+### A real-sized project's leads (session 257)
+
+ctui-daw's made-up 48-track projects (its `make bench`; ctui-wm's
+notes/self-improving.md "s7") put EQ Eight, the reverbs and the warped
+clips first. The same bits throughout (ulp.c's hashes vs before in gcc
+-O2, -v3, AVX and the scalar build; the ten variants' suites; ctui-daw's
+render hashes). ns per call, the same machine:
+
+| kernel | gcc-O2 | gcc-O2-v3 | clang-O2 | what |
+|---|---|---|---|---|
+| eq_bands -> eq_chain | 26172 -> 8115 (3.2x) | 26150 -> 6660 (3.9x) | 24374 -> 8761 (2.8x) | `udsp_eq_chain`: a 48 dB cut and three bells, seven sections, one wavefront (section k in lane k, a frame behind) |
+| fdn | 78906 -> 42260 (1.9x) | 74232 -> 35078 (2.1x) | 2.2x (-v3 2.5x) | the eight lines in lanes: Hermite reads (AVX2 gathers), damping, the Hadamard as lane swaps; the sums in line order |
+| vsinc | 186451 -> 111369 (1.7x) | 167267 -> 110469 (1.5x) | 1.5x | the weights four taps a step in double lanes, a stereo input's dots in four-float lanes |
+
+gcc needs the small loops inside a frame unrolled (`UDSP_UNROLL`) for
+lanes indexed by a loop variable to stay in registers: the FDN with its
+two-vector loop rolled was slower than the scalar code (90.6 us), the
+eq chain with its channel loop rolled 11.0. `-fno-strict-aliasing`
+(what ctui-daw's pipewire flags bring) changes none of the kernels.
+
+`udsp_fdn_idle(f, frames)` came with it: a host that skips a reverb in
+silence (ctui-daw's sleep) turns its modulation on exactly as that many
+frames of udsp_fdn_stereo would, so the reverb wakes in step.

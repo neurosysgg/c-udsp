@@ -196,6 +196,69 @@ static void test_ramp(void) {
                    "a shape with more sections jumps");
 }
 
+static uint32_t g_rng = 11;
+static float noise(void) {
+  g_rng ^= g_rng << 13;
+  g_rng ^= g_rng >> 17;
+  g_rng ^= g_rng << 5;
+  return (float)(int32_t)g_rng * (1.0f / 2147483648.0f);
+}
+
+/* a chain of n random bands (any shape, cuts of 48 among them: up to 32
+ * sections), some ramping, through udsp_eq_chain() in calls of `cut`
+ * frames and through udsp_eq_stereo() band by band in one: the same bits,
+ * the same state after */
+static int chain_same(int n, int cut, int ramps) {
+  enum { F = 1500 };
+  static float a[2 * F], b[2 * F];
+  UDSP_EQ_BAND x[8], y[8], *px[8];
+  for (int i = 0; i < n; i++) {
+    const UDSP_EQ_SHAPE shape =
+        (UDSP_EQ_SHAPE)((uint32_t)(noise() * 1e6f) % UDSP_EQ_SHAPES);
+    udsp_eq_reset(&x[i]);
+    udsp_eq_set(&x[i], shape, 300.0f + 4000.0f * (noise() + 1.0f),
+                0.5f + 4.0f * (noise() + 1.0f), 12.0f * noise(), RATE);
+    if (ramps && i % 2) {
+      UDSP_EQ_BAND to;
+      udsp_eq_set(&to, shape, 2000.0f, 2.0f, -6.0f, RATE);
+      udsp_eq_ramp(&x[i], &to, 100 + 37 * (unsigned)i);
+    }
+    y[i] = x[i];
+    px[i] = &x[i];
+  }
+  for (int i = 0; i < 2 * F; i++) {
+    a[i] = b[i] = noise();
+  }
+  for (int at = 0; at < F; at += cut) {
+    udsp_eq_chain(px, n, a + 2 * at, (size_t)(at + cut <= F ? cut : F - at));
+  }
+  for (int i = 0; i < n; i++) {
+    udsp_eq_stereo(&y[i], b, F);
+  }
+  int same = !memcmp(a, b, sizeof a);
+  for (int i = 0; i < n; i++) {
+    same &= !memcmp(x[i].ic1, y[i].ic1, sizeof x[i].ic1) &&
+            !memcmp(x[i].ic2, y[i].ic2, sizeof x[i].ic2) &&
+            x[i].ramp == y[i].ramp;
+  }
+  return same;
+}
+
+static void test_chain(void) {
+  int same = 1;
+  static const int CUT[] = {1500, 256, 32, 7, 1};
+  for (int n = 1; n <= 8; n++) {
+    for (int c = 0; c < 5; c++) {
+      same &= chain_same(n, CUT[c], 0) && chain_same(n, CUT[c], 1);
+    }
+  }
+  UDSP_TEST_ASSERT(same, "a chain of 1-8 bands, ramping or not, in calls of "
+                         "1500, 256, 32, 7 and 1: the bands' own bits");
+  float none[2] = {0.5f, -0.5f};
+  udsp_eq_chain(NULL, 0, none, 1);
+  UDSP_TEST_ASSERT(none[0] == 0.5f && none[1] == -0.5f, "no bands: as it was");
+}
+
 int main(void) {
   printf("eq_test\n");
   test_shapes();
@@ -203,5 +266,6 @@ int main(void) {
   test_swept_stable();
   test_blocks();
   test_ramp();
+  test_chain();
   return udsp_test_summary();
 }

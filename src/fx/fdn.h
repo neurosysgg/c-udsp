@@ -57,4 +57,9 @@ void udsp_fdn_set(UDSP_FDN *f, float size, float decay_s, float damp_hz,
  * in) */
 void udsp_fdn_stereo(UDSP_FDN *f, const float *in, float *wet, size_t frames);
 
+/* frames gone by unheard (a host's sleep in silence): the modulation
+ * turned on exactly as udsp_fdn_stereo() would have, the lines left as
+ * they are */
+void udsp_fdn_idle(UDSP_FDN *f, size_t frames);
+
 #endif

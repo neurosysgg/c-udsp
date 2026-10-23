@@ -182,6 +182,170 @@ UDSP_NO_SLP void udsp_eq_stereo(UDSP_EQ_BAND *b, float *io, size_t frames) {
   }
 }
 
+#if UDSP_W > 1
+/* A wavefront over sections (disperse.c's): lane k is section k at the
+ * frame k steps behind lane 0's, its input the output lane k - 1 made a
+ * step before. Each section runs its frames in order through step()'s
+ * operations, so the bits are a section at a time's, but a step's chains
+ * are all independent: one recurrence's latency a frame for the whole
+ * chain instead of one a section. Lanes past the last section have zero
+ * coefficients and state and stay zero; at the block's ends (the first
+ * and last m - 1 steps) the sections without a frame of their own keep
+ * their state. */
+#define CHAIN_LANES 16 /* a wavefront's sections at most */
+#define CHAIN_MAX_G (CHAIN_LANES / UDSP_W)
+
+typedef struct {
+  const UDSP_EQ_STAGE *st;
+  float *ic1, *ic2; /* [2]: left, right */
+} SECTION;
+
+/* step n: the sections a frame on each; edge: some lanes have no frame */
+static inline __attribute__((always_inline)) void
+wave_step(const UDSP_VF *a1, const UDSP_VF *a2, const UDSP_VF *a3,
+          const UDSP_VF *m0, const UDSP_VF *m1, const UDSP_VF *m2,
+          UDSP_VF (*s1)[CHAIN_MAX_G], UDSP_VF (*s2)[CHAIN_MAX_G],
+          UDSP_VF (*out)[CHAIN_MAX_G], const UDSP_VI *lane, float *io,
+          size_t frames, size_t n, int m, int last_g, int last_j,
+          const int edge, const int G) {
+  UDSP_UNROLL
+  for (int c = 0; c < 2; c++) {
+    UDSP_VF x[CHAIN_MAX_G];
+    x[0] = udsp_vshift_in(out[c][0], n < frames ? io[2 * n + c] : 0.0f);
+    UDSP_UNROLL
+    for (int g = 1; g < G; g++) {
+      x[g] = udsp_vshift_in(out[c][g], out[c][g - 1][UDSP_W - 1]);
+    }
+    UDSP_UNROLL
+    for (int g = 0; g < G; g++) {
+      const UDSP_VF v3 = x[g] - s2[c][g];
+      const UDSP_VF v1 = a1[g] * s1[c][g] + a2[g] * v3;
+      const UDSP_VF v2 = s2[c][g] + a2[g] * s1[c][g] + a3[g] * v3;
+      const UDSP_VF n1 = 2.0f * v1 - s1[c][g], n2 = 2.0f * v2 - s2[c][g];
+      out[c][g] = m0[g] * x[g] + m1[g] * v1 + m2[g] * v2;
+      if (edge) {
+        const UDSP_VI f = (int)n - lane[g];
+        const UDSP_VI ok = (f >= 0) & (f < (int)frames);
+        s1[c][g] = udsp_vsel(ok, n1, s1[c][g]);
+        s2[c][g] = udsp_vsel(ok, n2, s2[c][g]);
+      } else {
+        s1[c][g] = n1;
+        s2[c][g] = n2;
+      }
+    }
+    if (n >= (size_t)m - 1) {
+      io[2 * (n - ((size_t)m - 1)) + c] = out[c][last_g][last_j];
+    }
+  }
+}
+
+static inline __attribute__((always_inline)) void
+wavefront(const SECTION *sec, int m, float *io, size_t frames, const int G) {
+  UDSP_VF a1[CHAIN_MAX_G], a2[CHAIN_MAX_G], a3[CHAIN_MAX_G];
+  UDSP_VF m0[CHAIN_MAX_G], m1[CHAIN_MAX_G], m2[CHAIN_MAX_G];
+  UDSP_VF s1[2][CHAIN_MAX_G], s2[2][CHAIN_MAX_G], out[2][CHAIN_MAX_G];
+  UDSP_VI lane[CHAIN_MAX_G];
+  for (int g = 0; g < G; g++) {
+    for (int j = 0; j < UDSP_W; j++) {
+      const int k = g * UDSP_W + j;
+      const UDSP_EQ_STAGE z = {0}, *s = k < m ? sec[k].st : &z;
+      a1[g][j] = s->a1;
+      a2[g][j] = s->a2;
+      a3[g][j] = s->a3;
+      m0[g][j] = s->m0;
+      m1[g][j] = s->m1;
+      m2[g][j] = s->m2;
+      lane[g][j] = k;
+      for (int c = 0; c < 2; c++) {
+        s1[c][g][j] = k < m ? sec[k].ic1[c] : 0.0f;
+        s2[c][g][j] = k < m ? sec[k].ic2[c] : 0.0f;
+        out[c][g][j] = 0.0f;
+      }
+    }
+  }
+  const int last_g = (m - 1) / UDSP_W, last_j = (m - 1) % UDSP_W;
+  const size_t steps = frames + (size_t)m - 1;
+  /* the edges' steps, then the middle's (every lane its own frame) */
+  size_t n = 0;
+  const size_t mid = frames > (size_t)m - 1 ? (size_t)m - 1 : frames;
+  for (; n < mid; n++) {
+    wave_step(a1, a2, a3, m0, m1, m2, s1, s2, out, lane, io, frames, n, m,
+              last_g, last_j, 1, G);
+  }
+  for (; n < frames; n++) {
+    wave_step(a1, a2, a3, m0, m1, m2, s1, s2, out, lane, io, frames, n, m,
+              last_g, last_j, 0, G);
+  }
+  for (; n < steps; n++) {
+    wave_step(a1, a2, a3, m0, m1, m2, s1, s2, out, lane, io, frames, n, m,
+              last_g, last_j, 1, G);
+  }
+  for (int k = 0; k < m; k++) {
+    for (int c = 0; c < 2; c++) {
+      sec[k].ic1[c] = s1[c][k / UDSP_W][k % UDSP_W];
+      sec[k].ic2[c] = s2[c][k / UDSP_W][k % UDSP_W];
+    }
+  }
+}
+
+/* the sections gathered so far, one wavefront (or a few: CHAIN_LANES at
+ * a time) */
+static void run_sections(const SECTION *sec, int m, float *io, size_t frames) {
+  while (m > 0) {
+    const int k = m < CHAIN_LANES ? m : CHAIN_LANES;
+    const int g = (k + UDSP_W - 1) / UDSP_W;
+    if (g == 1) {
+      wavefront(sec, k, io, frames, 1);
+    } else if (g == 2) {
+      wavefront(sec, k, io, frames, 2);
+#if CHAIN_MAX_G > 2
+    } else if (g == 3) {
+      wavefront(sec, k, io, frames, 3);
+#endif
+    } else {
+      wavefront(sec, k, io, frames, CHAIN_MAX_G);
+    }
+    sec += k;
+    m -= k;
+  }
+}
+#endif
+
+void udsp_eq_chain(UDSP_EQ_BAND *const *bands, int n, float *io,
+                   size_t frames) {
+#if UDSP_W > 1
+  if (frames == 0) {
+    return;
+  }
+  SECTION sec[CHAIN_LANES];
+  int m = 0;
+  for (int i = 0; i < n; i++) {
+    UDSP_EQ_BAND *b = bands[i];
+    if (b->ramp) {
+      run_sections(sec, m, io, frames);
+      m = 0;
+      udsp_eq_stereo(b, io, frames);
+      continue;
+    }
+    for (int k = 0; k < b->stages; k++) {
+      if (m == CHAIN_LANES) {
+        run_sections(sec, m, io, frames);
+        m = 0;
+      }
+      sec[m].st = &b->st[k];
+      sec[m].ic1 = b->ic1[k];
+      sec[m].ic2 = b->ic2[k];
+      m++;
+    }
+  }
+  run_sections(sec, m, io, frames);
+#else
+  for (int i = 0; i < n; i++) {
+    udsp_eq_stereo(bands[i], io, frames);
+  }
+#endif
+}
+
 /* The trapezoidal SVF is its analog prototype at a warped frequency:
  * H = m0 + (m1 s + m2) / (s^2 + k s + 1), s = j tan(pi f / fs) / g */
 float udsp_eq_response(const UDSP_EQ_BAND *b, float hz, unsigned rate) {

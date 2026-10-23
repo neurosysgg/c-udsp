@@ -313,6 +313,117 @@ static void test_vs_cut(void) {
   free(cut);
 }
 
+/* udsp_vsinc_run as it was a tap at a time (before the weights went
+ * into lanes, session 257): the bits the run is held to */
+static void ref_vsinc(const UDSP_VSINC *k, const float *in, uint32_t channels,
+                      int64_t in_first, size_t in_n, int64_t frame,
+                      uint32_t frac, uint64_t step, float *out, size_t n) {
+  float w[2 * UDSP_VSINC_ZEROS * UDSP_VSINC_SPEED_MAX + 8];
+  double s = (double)step / (double)UDSP_VSINC_ONE;
+  s = s < 1.0 ? 1.0 : s > UDSP_VSINC_SPEED_MAX ? UDSP_VSINC_SPEED_MAX : s;
+  const double reach = k->zeros * s;
+  const double scale = UDSP_VSINC_PHASES * k->zeros / reach;
+  const uint32_t limit = k->zeros * UDSP_VSINC_PHASES;
+  const int64_t half = (int64_t)reach + 1;
+  uint32_t taps = (uint32_t)(2 * half + 1);
+  taps = (taps + 3) & ~3u;
+  for (size_t o = 0; o < n; o++) {
+    const uint64_t at = (uint64_t)frac + (uint64_t)o * step;
+    const int64_t f = frame + (int64_t)(at >> 32);
+    const uint32_t fr = (uint32_t)at;
+    float *y = out + o * channels;
+    const int64_t rel = f - in_first;
+    if (step == UDSP_VSINC_ONE && fr == 0) {
+      for (uint32_t c = 0; c < channels; c++) {
+        y[c] = rel >= 0 && (uint64_t)rel < in_n ? in[(size_t)rel * channels + c]
+                                                : 0.0f;
+      }
+      continue;
+    }
+    const int64_t j0 = f - half + 1;
+    const double p = (double)fr / (double)UDSP_VSINC_ONE;
+    float sum4[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+    for (uint32_t t = 0; t < taps; t += 4) {
+      for (uint32_t j = 0; j < 4; j++) {
+        double x = (double)(j0 + (int64_t)(t + j) - f) - p;
+        x = (x < 0.0 ? -x : x) * scale;
+        float v = 0.0f;
+        if (x < (double)limit) {
+          const uint32_t i = (uint32_t)x;
+          const float mu = (float)(x - (double)i);
+          v = k->table[i] + mu * (k->table[i + 1] - k->table[i]);
+        }
+        w[t + j] = v;
+        sum4[j] = sum4[j] + v;
+      }
+    }
+    const float sum = (sum4[0] + sum4[1]) + (sum4[2] + sum4[3]);
+    const float norm = sum != 0.0f ? 1.0f / sum : 0.0f;
+    for (uint32_t c = 0; c < channels; c++) {
+      float acc[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+      for (uint32_t t = 0; t < taps; t += 4) {
+        for (uint32_t j = 0; j < 4; j++) {
+          const int64_t r = j0 + (int64_t)(t + j) - in_first;
+          const float xv = r >= 0 && (uint64_t)r < in_n
+                               ? in[(size_t)r * channels + c]
+                               : 0.0f;
+          acc[j] = acc[j] + w[t + j] * xv;
+        }
+      }
+      y[c] = ((acc[0] + acc[1]) + (acc[2] + acc[3])) * norm;
+    }
+  }
+}
+
+/* slower, about 1, faster, past the widest; mono, stereo and three
+ * channels; windows the kernel runs off at both ends: the old bits */
+static void test_vs_reference(void) {
+  enum { IN = 3000, OUT = 600 };
+  static float in[IN * 3], got[OUT * 3], want[OUT * 3];
+  uint32_t rng = 5;
+  for (int i = 0; i < IN * 3; i++) {
+    rng ^= rng << 13;
+    rng ^= rng >> 17;
+    rng ^= rng << 5;
+    in[i] = (float)(int32_t)rng * (1.0f / 2147483648.0f);
+  }
+  static const double SPEED[] = {0.37, 0.9999, 1.0, 1.0001, 1.5, 3.7, 6.0};
+  int same = 1;
+  float worst = 0.0f;
+  for (uint32_t ch = 1; ch <= 3; ch++) {
+    for (int s = 0; s < 7; s++) {
+      const uint64_t step = (uint64_t)(SPEED[s] * (double)UDSP_VSINC_ONE);
+      /* from before the window's start, from its middle */
+      static const int64_t FROM[] = {-40, 900};
+      for (int f = 0; f < 2; f++) {
+        const size_t n = SPEED[s] > 4.0 ? OUT / 2 : OUT;
+        udsp_vsinc_run(&g_vs, in, ch, 0, IN / 2, FROM[f], 0x9e3779b9u, step,
+                       got, ch, n);
+        ref_vsinc(&g_vs, in, ch, 0, IN / 2, FROM[f], 0x9e3779b9u, step, want,
+                  n);
+        same &= !memcmp(got, want, n * ch * sizeof(float));
+        for (size_t i = 0; i < n * ch; i++) {
+          const float d = fabsf(got[i] - want[i]);
+          worst = d > worst ? d : worst;
+        }
+      }
+    }
+  }
+#if defined(__clang__) && defined(__FMA__)
+  /* clang fuses a * b + c by default (DESIGN.md "Bits"): the scalar
+   * reference's taps, not the run's lanes */
+  UDSP_TEST_ASSERT(worst < 1e-5f,
+                   "speeds 0.37 .. 6, 1-3 channels, both "
+                   "edges: the tap-at-a-time answers (%g, fused)",
+                   (double)worst);
+#else
+  UDSP_TEST_ASSERT(same,
+                   "speeds 0.37 .. 6, 1-3 channels, both edges: the "
+                   "tap-at-a-time bits (%g)",
+                   (double)worst);
+#endif
+}
+
 int main(void) {
   test_shape();
   test_dc();
@@ -326,6 +437,7 @@ int main(void) {
   test_vs_sine();
   test_vs_alias();
   test_vs_cut();
+  test_vs_reference();
   free(g_table);
   free(g_vtable);
   return udsp_test_summary();
