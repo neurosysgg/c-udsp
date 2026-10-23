@@ -204,7 +204,7 @@ static uint64_t speed_q(double s) { return (uint64_t)(s * UDSP_VSINC_ONE); }
 static void test_vs_identity(void) {
   g_vtable = malloc(udsp_vsinc_floats(UDSP_VSINC_ZEROS) * sizeof *g_vtable);
   udsp_vsinc_init(&g_vs, UDSP_VSINC_ZEROS, g_vtable);
-  UDSP_TEST_ASSERT(udsp_vsinc_floats(32) == 32u * UDSP_VSINC_PHASES + 2 &&
+  UDSP_TEST_ASSERT(udsp_vsinc_floats(32) == 2 * (32u * UDSP_VSINC_PHASES + 2) &&
                        udsp_vsinc_floats(0) == 0,
                    "the table's size");
   float in[2 * 300], out[2 * 200];
@@ -351,7 +351,7 @@ static void ref_vsinc(const UDSP_VSINC *k, const float *in, uint32_t channels,
         if (x < (double)limit) {
           const uint32_t i = (uint32_t)x;
           const float mu = (float)(x - (double)i);
-          v = k->table[i] + mu * (k->table[i + 1] - k->table[i]);
+          v = k->table[2 * i] + mu * (k->table[2 * i + 2] - k->table[2 * i]);
         }
         w[t + j] = v;
         sum4[j] = sum4[j] + v;

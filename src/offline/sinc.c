@@ -303,7 +303,7 @@ void udsp_sinc_run(const UDSP_SINC *s, const float *in, int64_t in_first,
 #define VS_TAPS_MAX(z) (2u * (z) * UDSP_VSINC_SPEED_MAX + 8u)
 
 size_t udsp_vsinc_floats(uint32_t zeros) {
-  return zeros ? (size_t)zeros * UDSP_VSINC_PHASES + 2 : 0;
+  return zeros ? 2 * ((size_t)zeros * UDSP_VSINC_PHASES + 2) : 0;
 }
 
 void udsp_vsinc_init(UDSP_VSINC *k, uint32_t zeros, float *table) {
@@ -321,8 +321,14 @@ void udsp_vsinc_init(UDSP_VSINC *k, uint32_t zeros, float *table) {
     const double w =
         u >= 1.0 ? 0.0 : bessel_i0(beta * my_sqrt(1.0 - u * u)) / i0_beta;
     const double sinc = i == 0 ? 2.0 * fcut : sin_pi(2.0 * fcut * x) / (PI * x);
-    table[i] = (float)(sinc * w);
+    table[2 * i] = (float)(sinc * w);
   }
+  /* each point's step to the next beside it: the read's t1 - t0, the
+   * same float subtraction made once */
+  for (uint32_t i = 0; i <= n; i++) {
+    table[2 * i + 1] = table[2 * i + 2] - table[2 * i];
+  }
+  table[2 * (n + 1) + 1] = 0.0f;
 }
 
 /* the kernel's half width at step, in input frames */
@@ -343,37 +349,37 @@ void udsp_vsinc_span(const UDSP_VSINC *k, int64_t frame, uint32_t frac,
 /* an output's weights, taps (a multiple of 4) of them from the tap at
  * d0 frames from its frame (1 - the half width), p its fraction: four
  * taps a step, each lane the scalar's operations (the distance in double,
- * the table read linearly) and sum4 the four lanes' sums */
+ * the table read linearly) and sum4 the four lanes' sums. The distances
+ * d0 - p + t are exact in double (a few frames and 32 bits of fraction),
+ * so they're stepped by 4 rather than made a tap at a time. */
 static void vs_weights(const float *table, int64_t d0, double p, double scale,
                        uint32_t limit, uint32_t taps, float *w, float *sum4) {
 #if defined(__SSE2__) && UDSP_W > 1
   __m128 sum = _mm_setzero_ps();
   const __m128i lim = _mm_set1_epi32((int)limit);
-#if !defined(__AVX__)
+  const double u0 = (double)d0 - p;
+#if defined(__AVX__)
+  const __m256d sign = _mm256_set1_pd(-0.0), sc = _mm256_set1_pd(scale),
+                four = _mm256_set1_pd(4.0);
+  __m256d u =
+      _mm256_add_pd(_mm256_set1_pd(u0), _mm256_set_pd(3.0, 2.0, 1.0, 0.0));
+#else
   const __m128d sign = _mm_set1_pd(-0.0), sc = _mm_set1_pd(scale),
-                pv = _mm_set1_pd(p);
+                four = _mm_set1_pd(4.0);
+  __m128d ua = _mm_add_pd(_mm_set1_pd(u0), _mm_set_pd(1.0, 0.0)),
+          ub = _mm_add_pd(_mm_set1_pd(u0), _mm_set_pd(3.0, 2.0));
 #endif
   for (uint32_t t = 0; t < taps; t += 4) {
-    const double d = (double)(d0 + (int64_t)t);
 #if defined(__AVX__)
-    const __m256d x0 = _mm256_sub_pd(
-        _mm256_add_pd(_mm256_set1_pd(d), _mm256_set_pd(3.0, 2.0, 1.0, 0.0)),
-        _mm256_set1_pd(p));
-    const __m256d x = _mm256_mul_pd(_mm256_andnot_pd(_mm256_set1_pd(-0.0), x0),
-                                    _mm256_set1_pd(scale));
+    const __m256d x = _mm256_mul_pd(_mm256_andnot_pd(sign, u), sc);
+    u = _mm256_add_pd(u, four);
     const __m128i i = _mm256_cvttpd_epi32(x);
     const __m128 mu = _mm256_cvtpd_ps(_mm256_sub_pd(x, _mm256_cvtepi32_pd(i)));
 #else
-    const __m128d xa = _mm_mul_pd(
-        _mm_andnot_pd(
-            sign,
-            _mm_sub_pd(_mm_add_pd(_mm_set1_pd(d), _mm_set_pd(1.0, 0.0)), pv)),
-        sc);
-    const __m128d xb = _mm_mul_pd(
-        _mm_andnot_pd(
-            sign,
-            _mm_sub_pd(_mm_add_pd(_mm_set1_pd(d), _mm_set_pd(3.0, 2.0)), pv)),
-        sc);
+    const __m128d xa = _mm_mul_pd(_mm_andnot_pd(sign, ua), sc);
+    const __m128d xb = _mm_mul_pd(_mm_andnot_pd(sign, ub), sc);
+    ua = _mm_add_pd(ua, four);
+    ub = _mm_add_pd(ub, four);
     const __m128i ia = _mm_cvttpd_epi32(xa), ib = _mm_cvttpd_epi32(xb);
     const __m128i i = _mm_unpacklo_epi64(ia, ib);
     const __m128 mu =
@@ -381,23 +387,23 @@ static void vs_weights(const float *table, int64_t d0, double p, double scale,
                       _mm_cvtpd_ps(_mm_sub_pd(xb, _mm_cvtepi32_pd(ib))));
 #endif
     /* x < limit, limit whole: its whole part below it; the others read
-     * the table's start and weigh 0 */
+     * the table's start and weigh 0. A point and its step are a pair:
+     * one 8-byte read a lane (AVX2's gather of them: slower, on Zen 3
+     * 85 against 75 us the bench's call) */
     const __m128i ok = _mm_cmplt_epi32(i, lim);
     const __m128i at = _mm_and_si128(i, ok);
-#if defined(__AVX2__)
-    const __m128 t0 = _mm_i32gather_ps(table, at, 4);
-    const __m128 t1 = _mm_i32gather_ps(table + 1, at, 4);
-#else
     int ix[4];
-    _mm_storeu_si128((__m128i *)ix, at);
-    const __m128 t0 =
-        _mm_set_ps(table[ix[3]], table[ix[2]], table[ix[1]], table[ix[0]]);
-    const __m128 t1 = _mm_set_ps(table[ix[3] + 1], table[ix[2] + 1],
-                                 table[ix[1] + 1], table[ix[0] + 1]);
-#endif
+    _mm_storeu_si128((__m128i *)ix, _mm_add_epi32(at, at));
+    const __m128 lo = _mm_loadh_pi(
+        _mm_loadl_pi(_mm_setzero_ps(), (const __m64 *)(table + ix[0])),
+        (const __m64 *)(table + ix[1]));
+    const __m128 hi = _mm_loadh_pi(
+        _mm_loadl_pi(_mm_setzero_ps(), (const __m64 *)(table + ix[2])),
+        (const __m64 *)(table + ix[3]));
+    const __m128 t0 = _mm_shuffle_ps(lo, hi, _MM_SHUFFLE(2, 0, 2, 0));
+    const __m128 dt = _mm_shuffle_ps(lo, hi, _MM_SHUFFLE(3, 1, 3, 1));
     const __m128 v =
-        _mm_and_ps(_mm_add_ps(t0, _mm_mul_ps(mu, _mm_sub_ps(t1, t0))),
-                   _mm_castsi128_ps(ok));
+        _mm_and_ps(_mm_add_ps(t0, _mm_mul_ps(mu, dt)), _mm_castsi128_ps(ok));
     _mm_storeu_ps(w + t, v);
     sum = _mm_add_ps(sum, v);
   }
@@ -415,7 +421,7 @@ static void vs_weights(const float *table, int64_t d0, double p, double scale,
       if (x < (double)limit) {
         const uint32_t i = (uint32_t)x;
         const float mu = (float)(x - (double)i);
-        v = table[i] + mu * (table[i + 1] - table[i]);
+        v = table[2 * i] + mu * table[2 * i + 1];
       }
       w[t + j] = v;
       sum4[j] = sum4[j] + v;

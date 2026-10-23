@@ -567,6 +567,27 @@ in and out) -- no faster in ctui-daw's projects, where most synths have
 one or two voices sounding: the transposes and idle lanes cost what the
 overlap saves.
 
+### The varispeed sinc's weights (session 261)
+
+ctui-daw's audio clips (its s7 list: 93 % of "op audio" in
+`udsp_vsinc_run`, ~66 % of that the weights). The same bits (ulp.c's
+whole table identical to before's in every build; the reference
+`ref_vsinc` of sinc_test; ctui-daw's render hashes). ns per call
+(`results/s261-before.tsv`, `s261-after.tsv`):
+
+| kernel | gcc-O2 | gcc-O2-v3 | clang-O2 | what |
+|---|---|---|---|---|
+| vsinc | 112486 -> 81778 (1.38x) | 109913 -> 76039 (1.45x) | 114977 -> 82941 (1.39x) | the table as pairs (a point, its step to the next: one 8-byte load a lane, the t1 - t0 made once at init), the taps' distances stepped by 4 (d0 - p + t is exact in double) |
+
+The table is twice the floats (`udsp_vsinc_floats`: 128 KB at 32
+zeros); ulp hashes only its points, so its hash is before's. AVX2's
+gather of the pairs was slower than four 8-byte loads on Zen 3 (85 vs
+75 us at -v3): left out, the old gather path with it. Computing the
+stereo dot as the weights come (no store and reload of them): ~3 %,
+not kept. What's left is the conversions per four taps (double to int,
+back, to float), which the same bits need: above speed 1 the scale
+isn't a power of two, so each tap's distance is its own rounding.
+
 ### The sampler's reads, the reverb's pushes, the head's sums (session 260)
 
 ctui-daw's sampler, reverb and convolver (its s7 list). The same bits

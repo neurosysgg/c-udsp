@@ -841,7 +841,10 @@ static double k_vsinc(const float *x, size_t n) {
   float *table = malloc(udsp_vsinc_floats(UDSP_VSINC_ZEROS) * sizeof *table);
   UDSP_VSINC k;
   udsp_vsinc_init(&k, UDSP_VSINC_ZEROS, table);
-  hash_floats(table, udsp_vsinc_floats(UDSP_VSINC_ZEROS));
+  /* the points, not their steps: the hash before they were pairs */
+  for (size_t i = 0; i < udsp_vsinc_floats(UDSP_VSINC_ZEROS) / 2; i++) {
+    hash_floats(table + 2 * i, 1);
+  }
   static const double speeds[3] = {0.731, 1.618, 5.5};
   for (int s = 0; s < 3; s++) {
     const size_t outs = n / 2;

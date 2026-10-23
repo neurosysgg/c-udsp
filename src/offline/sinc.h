@@ -79,7 +79,9 @@ void udsp_sinc_run(const UDSP_SINC *s, const float *in, int64_t in_first,
 
 typedef struct {
   uint32_t zeros;
-  const float *table; /* zeros * UDSP_VSINC_PHASES + 2 points, |x| from 0 */
+  /* zeros * UDSP_VSINC_PHASES + 2 points, |x| from 0, each followed by
+   * its step to the next (the last's 0): pairs, a read one load */
+  const float *table;
 } UDSP_VSINC;
 
 /* the floats udsp_vsinc_init's table needs (0 for zeros 0); zeros at
