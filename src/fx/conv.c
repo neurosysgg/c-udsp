@@ -92,6 +92,26 @@ void udsp_conv_direct(const float *hr, size_t taps, const float *x, float *out,
                       size_t n) {
   const float *x0 = x - (taps - 1);
   size_t i = 0;
+  /* four outputs' vectors side by side: each one's sum is a chain of
+   * adds over the taps (in their order, as one at a time), and four in
+   * flight hide its latency */
+  for (; i + 4 * UDSP_W <= n; i += 4 * UDSP_W) {
+    UDSP_VF a0 = udsp_vload(out + i), a1 = udsp_vload(out + i + UDSP_W);
+    UDSP_VF a2 = udsp_vload(out + i + 2 * UDSP_W);
+    UDSP_VF a3 = udsp_vload(out + i + 3 * UDSP_W);
+    const float *p = x0 + i;
+    for (size_t j = 0; j < taps; j++, p++) {
+      const UDSP_VF h = udsp_vsplat(hr[j]);
+      a0 = a0 + h * udsp_vload(p);
+      a1 = a1 + h * udsp_vload(p + UDSP_W);
+      a2 = a2 + h * udsp_vload(p + 2 * UDSP_W);
+      a3 = a3 + h * udsp_vload(p + 3 * UDSP_W);
+    }
+    udsp_vstore(out + i, a0);
+    udsp_vstore(out + i + UDSP_W, a1);
+    udsp_vstore(out + i + 2 * UDSP_W, a2);
+    udsp_vstore(out + i + 3 * UDSP_W, a3);
+  }
   for (; i + UDSP_W <= n; i += UDSP_W) {
     UDSP_VF acc = udsp_vload(out + i);
     for (size_t j = 0; j < taps; j++) {

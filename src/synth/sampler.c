@@ -2,6 +2,7 @@
 
 #include <string.h>
 
+#include "base/simd.h"
 #include "synth/pitch.h"
 
 void udsp_sampler_note_on(UDSP_SAMPLER_VOICE *v, const UDSP_SAMPLE *s, int note,
@@ -93,7 +94,60 @@ static inline float hermite(float ym1, float y0, float y1, float y2, float x) {
 
 uint64_t udsp_resample_cubic(const float *window, uint32_t ch, uint64_t pos_q32,
                              uint64_t step_q32, float *out, size_t frames) {
-  for (size_t f = 0; f < frames; f++) {
+  size_t f = 0;
+  if (step_q32 == 1ull << 32 && !(uint32_t)pos_q32) {
+    /* a frame a frame from a whole position (a sample at its root, at
+     * the output's rate): the frames themselves -- what the cubic gives
+     * at x = 0, but for a zero's sign */
+    const float *p = window + (pos_q32 >> 32) * ch;
+    if (ch == 2) {
+      memcpy(out, p, frames * 2 * sizeof(float));
+    } else {
+      for (; f < frames; f++) {
+        out[f * 2] = out[f * 2 + 1] = p[f];
+      }
+    }
+    return pos_q32 + (uint64_t)frames * step_q32;
+  }
+#if UDSP_W > 1
+  /* UDSP_W outputs at a time, each lane's four points (two fours for a
+   * stereo pair) read side by side: the same operations per output as
+   * below, where the window's floats are int-indexable */
+  const uint64_t last = udsp_resample_window(pos_q32, step_q32, frames);
+  for (; last * ch < INT32_MAX && f + UDSP_W <= frames; f += UDSP_W) {
+    UDSP_VI at;
+    UDSP_VU frac;
+    UDSP_UNROLL
+    for (int j = 0; j < UDSP_W; j++) {
+      const uint64_t p = pos_q32 + (uint64_t)j * step_q32;
+      at[j] = (int)(((p >> 32) - 1) * ch);
+      frac[j] = (uint32_t)p;
+    }
+    pos_q32 += (uint64_t)UDSP_W * step_q32;
+    const UDSP_VF x =
+        __builtin_convertvector(frac, UDSP_VF) * (1.0f / 4294967296.0f);
+    UDSP_VF a, b, c, d;
+    udsp_vcols4(window, at, &a, &b, &c, &d);
+    if (ch == 2) {
+      UDSP_VF e, g, h, k;
+      udsp_vcols4(window, at + 4, &e, &g, &h, &k);
+      const UDSP_VF l = udsp_vhermite(a, c, e, h, x);
+      const UDSP_VF r = udsp_vhermite(b, d, g, k, x);
+      UDSP_UNROLL
+      for (int j = 0; j < UDSP_W; j++) {
+        out[(f + j) * 2] = l[j];
+        out[(f + j) * 2 + 1] = r[j];
+      }
+    } else {
+      const UDSP_VF l = udsp_vhermite(a, b, c, d, x);
+      UDSP_UNROLL
+      for (int j = 0; j < UDSP_W; j++) {
+        out[(f + j) * 2] = out[(f + j) * 2 + 1] = l[j];
+      }
+    }
+  }
+#endif
+  for (; f < frames; f++) {
     const uint64_t idx = pos_q32 >> 32;
     const float x =
         (float)(uint32_t)(pos_q32 & 0xffffffffull) * (1.0f / 4294967296.0f);

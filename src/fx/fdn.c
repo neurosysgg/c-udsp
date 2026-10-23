@@ -221,6 +221,14 @@ static inline void vhadamard(UDSP_VF *x) {
 #endif
 
 #if UDSP_W > 1
+/* frames whose pushes wait for the block's end: a read reaches no nearer
+ * than its line's length less a rounding of the swing (its circle is
+ * kept on 1), so a block shorter than the shortest line reads none of
+ * its own pushes. Then each line's run goes in at once and the outputs'
+ * sums are taken across frames -- a frame's lanes are never picked
+ * apart one by one */
+#define FDN_BLOCK 16
+
 static void fdn_lanes(UDSP_FDN *f, const float *in, float *wet, size_t frames) {
   float mc = f->mc, ms = f->ms;
   const float g_ap = f->ap_g;
@@ -229,6 +237,7 @@ static void fdn_lanes(UDSP_FDN *f, const float *in, float *wet, size_t frames) {
   float *wbase = f->line[0].buf;
   UDSP_VF len[FG], gain[FG], lp[FG], mod_c[FG], mod_s[FG], in_sign[FG];
   UDSP_VI off[FG], w[FG], mask[FG];
+  float shortest = f->len[0];
   for (int g = 0; g < FG; g++) {
     for (int j = 0; j < UDSP_W; j++) {
       const int i = g * UDSP_W + j;
@@ -241,56 +250,117 @@ static void fdn_lanes(UDSP_FDN *f, const float *in, float *wet, size_t frames) {
       off[g][j] = (int)(f->line[i].buf - base);
       w[g][j] = (int)f->line[i].w;
       mask[g][j] = (int)f->line[i].mask;
+      shortest = f->len[i] < shortest ? f->len[i] : shortest;
     }
   }
-  const float depth = f->depth, damp = f->damp;
-  for (size_t n = 0; n < frames; n++) {
-    float x = 0.5f * (in[2 * n] + in[2 * n + 1]);
-    if (f->predelay) {
-      const float d = udsp_line_tap(&f->pre, f->predelay);
-      udsp_line_push(&f->pre, x);
-      x = d;
+  /* a frame at a time below a few kHz (lines shorter than a block) */
+  const size_t room = shortest > FDN_BLOCK + 4 ? FDN_BLOCK : 1;
+  const float depth = f->depth, damp = f->damp, width = f->width;
+  /* a block's frames: each one's lines before the Hadamard (the sums')
+   * and its pushes, lines in order */
+  UDSP_VF sb[FDN_BLOCK][FG], vb[FDN_BLOCK][FG];
+  const float *sf = (const float *)sb, *vf = (const float *)vb;
+  for (size_t n0 = 0; n0 < frames; n0 += room) {
+    const size_t b = frames - n0 < room ? frames - n0 : room;
+    for (size_t k = 0; k < b; k++) {
+      const size_t n = n0 + k;
+      float x = 0.5f * (in[2 * n] + in[2 * n + 1]);
+      if (f->predelay) {
+        const float d = udsp_line_tap(&f->pre, f->predelay);
+        udsp_line_push(&f->pre, x);
+        x = d;
+      }
+      UDSP_UNROLL
+      for (int a = 0; a < UDSP_FDN_DIFFUSERS; a++) {
+        const float t = udsp_line_tap(&f->ap[a], f->ap_len[a]);
+        const float v = x + g_ap * t;
+        udsp_line_push(&f->ap[a], v);
+        x = t - g_ap * v;
+      }
+      turn(f, &mc, &ms);
+      UDSP_VF s[FG];
+      UDSP_UNROLL
+      for (int g = 0; g < FG; g++) {
+        const UDSP_VF d =
+            len[g] + depth * (1.0f + mod_c[g] * mc + mod_s[g] * ms);
+        const UDSP_VI i = __builtin_convertvector(d, UDSP_VI);
+        const UDSP_VF fr = d - __builtin_convertvector(i, UDSP_VF);
+        UDSP_VF y0, y1, y2;
+        /* the next push is k frames on from w: those before it wait */
+        const UDSP_VF ym1 =
+            udsp_vtaps(base, off[g], (w[g] + (int)k - i) & mask[g], mask[g],
+                       &y0, &y1, &y2);
+        const UDSP_VF y = udsp_vhermite(ym1, y0, y1, y2, fr);
+        lp[g] += damp * (y - lp[g]);
+        s[g] = lp[g];
+        sb[k][g] = s[g];
+      }
+      vhadamard(s);
+      UDSP_UNROLL
+      for (int g = 0; g < FG; g++) {
+        vb[k][g] = in_sign[g] * x + gain[g] * s[g];
+      }
     }
-    UDSP_UNROLL
-    for (int k = 0; k < UDSP_FDN_DIFFUSERS; k++) {
-      const float b = udsp_line_tap(&f->ap[k], f->ap_len[k]);
-      const float v = x + g_ap * b;
-      udsp_line_push(&f->ap[k], v);
-      x = b - g_ap * v;
-    }
-    turn(f, &mc, &ms);
-    UDSP_VF s[FG];
-    UDSP_UNROLL
-    for (int g = 0; g < FG; g++) {
-      const UDSP_VF d = len[g] + depth * (1.0f + mod_c[g] * mc + mod_s[g] * ms);
-      const UDSP_VI i = __builtin_convertvector(d, UDSP_VI);
-      const UDSP_VF fr = d - __builtin_convertvector(i, UDSP_VF);
-      UDSP_VF y0, y1, y2;
-      const UDSP_VF ym1 = udsp_vtaps(base, off[g], (w[g] - i) & mask[g],
-                                     mask[g], &y0, &y1, &y2);
-      const UDSP_VF y = udsp_vhermite(ym1, y0, y1, y2, fr);
-      lp[g] += damp * (y - lp[g]);
-      s[g] = lp[g];
-    }
-    float l = 0.0f, r = 0.0f;
-    UDSP_UNROLL
-    for (int i = 0; i < UDSP_FDN_N; i++) {
-      l += L_SIGN[i] * s[i / UDSP_W][i % UDSP_W];
-      r += R_SIGN[i] * s[i / UDSP_W][i % UDSP_W];
-    }
-    vhadamard(s);
-    UDSP_UNROLL
-    for (int g = 0; g < FG; g++) {
-      const UDSP_VF v = in_sign[g] * x + gain[g] * s[g];
+    /* UDSP_W frames at a time: four lines' values across them (a
+     * transpose of the frames' rows) -- the pushes as runs, the sums in
+     * line order per frame as one line at a time had them */
+    size_t k = 0;
+    for (; k + UDSP_W <= b; k += UDSP_W) {
+      UDSP_VI at;
       UDSP_UNROLL
       for (int j = 0; j < UDSP_W; j++) {
-        wbase[off[g][j] + w[g][j]] = v[j];
+        at[j] = (int)(k + (size_t)j) * UDSP_FDN_N;
       }
-      w[g] = (w[g] + 1) & mask[g];
+      UDSP_VF c[UDSP_FDN_N], v[UDSP_FDN_N];
+      UDSP_UNROLL
+      for (int q = 0; q < UDSP_FDN_N; q += 4) {
+        udsp_vcols4(sf, at + q, &c[q], &c[q + 1], &c[q + 2], &c[q + 3]);
+        udsp_vcols4(vf, at + q, &v[q], &v[q + 1], &v[q + 2], &v[q + 3]);
+      }
+      UDSP_VF l = udsp_vsplat(0.0f), r = l;
+      UDSP_UNROLL
+      for (int i = 0; i < UDSP_FDN_N; i++) {
+        l += L_SIGN[i] * c[i];
+        r += R_SIGN[i] * c[i];
+        const int lw = w[i / UDSP_W][i % UDSP_W] + (int)k;
+        const int lm = mask[i / UDSP_W][i % UDSP_W];
+        float *ring = wbase + off[i / UDSP_W][i % UDSP_W];
+        if (lw + UDSP_W - 1 <= lm) {
+          udsp_vstore(ring + lw, v[i]);
+        } else {
+          for (int j = 0; j < UDSP_W; j++) {
+            ring[(lw + j) & lm] = v[i][j];
+          }
+        }
+      }
+      const UDSP_VF mid = 0.5f * (l + r), side = 0.5f * (l - r) * width;
+      const UDSP_VF wl = 0.35355339f * (mid + side);
+      const UDSP_VF wr = 0.35355339f * (mid - side);
+      UDSP_UNROLL
+      for (int j = 0; j < UDSP_W; j++) {
+        wet[2 * (n0 + k + (size_t)j)] = wl[j];
+        wet[2 * (n0 + k + (size_t)j) + 1] = wr[j];
+      }
     }
-    const float mid = 0.5f * (l + r), side = 0.5f * (l - r) * f->width;
-    wet[2 * n] = 0.35355339f * (mid + side);
-    wet[2 * n + 1] = 0.35355339f * (mid - side);
+    for (; k < b; k++) {
+      float l = 0.0f, r = 0.0f;
+      for (int i = 0; i < UDSP_FDN_N; i++) {
+        const float y = sf[k * UDSP_FDN_N + (size_t)i];
+        l += L_SIGN[i] * y;
+        r += R_SIGN[i] * y;
+        const int lw = w[i / UDSP_W][i % UDSP_W] + (int)k;
+        wbase[off[i / UDSP_W][i % UDSP_W] +
+              (lw & mask[i / UDSP_W][i % UDSP_W])] =
+            vf[k * UDSP_FDN_N + (size_t)i];
+      }
+      const float mid = 0.5f * (l + r), side = 0.5f * (l - r) * width;
+      wet[2 * (n0 + k)] = 0.35355339f * (mid + side);
+      wet[2 * (n0 + k) + 1] = 0.35355339f * (mid - side);
+    }
+    UDSP_UNROLL
+    for (int g = 0; g < FG; g++) {
+      w[g] = (w[g] + (int)b) & mask[g];
+    }
   }
   UDSP_UNROLL
   for (int i = 0; i < UDSP_FDN_N; i++) {

@@ -546,16 +546,27 @@ static double k_dyn(const float *x, size_t n) {
 
 /* the reverb over the signal as stereo, modulated and diffused, and the
  * saturator's curves at a drive of 4: bits only */
+/* the reverb over its input again and again in calls of uneven lengths,
+ * long enough that every line's ring wraps; at 48 kHz and at 3 kHz,
+ * where its shortest line is under a block (a frame at a time) */
 static double k_fdn(const float *x, size_t n) {
-  static float *mem;
-  if (!mem) {
-    mem = calloc(udsp_fdn_floats(48000), sizeof(float));
+  static const unsigned rates[2] = {48000, 3000};
+  static const size_t cuts[] = {1, 7, 16, 33, 100, 255, 3, 512};
+  for (int k = 0; k < 2; k++) {
+    float *mem = calloc(udsp_fdn_floats(rates[k]), sizeof(float));
+    UDSP_FDN f;
+    udsp_fdn_init(&f, mem, rates[k]);
+    udsp_fdn_set(&f, k ? 0.2f : 0.4f, 1.2f, 5000.0f, 0.7f, 1.0f, 3.0f, 0.8f);
+    size_t at = 0;
+    for (int c = 0; c < 120; c++) {
+      size_t m = cuts[c % 8];
+      m = m < n / 2 - at ? m : n / 2 - at;
+      udsp_fdn_stereo(&f, x + 2 * at, g_got, m);
+      hash_floats(g_got, 2 * m);
+      at = at + m == n / 2 ? 0 : at + m;
+    }
+    free(mem);
   }
-  UDSP_FDN f;
-  udsp_fdn_init(&f, mem, 48000);
-  udsp_fdn_set(&f, 0.4f, 1.2f, 5000.0f, 0.7f, 1.0f, 3.0f, 0.8f);
-  udsp_fdn_stereo(&f, x, g_got, n / 2);
-  hash_floats(g_got, n);
   return 0.0;
 }
 

@@ -566,3 +566,34 @@ a synth's voices' ZDFs side by side in lanes (four at a time, transposed
 in and out) -- no faster in ctui-daw's projects, where most synths have
 one or two voices sounding: the transposes and idle lanes cost what the
 overlap saves.
+
+### The sampler's reads, the reverb's pushes, the head's sums (session 260)
+
+ctui-daw's sampler, reverb and convolver (its s7 list). The same bits
+(ulp.c's whole table identical to before's in every build; the
+variants' suites; ctui-daw's render hashes in gcc, -v3 and clang). ns
+per call (`results/s260-before.tsv`, `s260-after.tsv`):
+
+| kernel | gcc-O2 | gcc-O2-v3 | clang-O2 | what |
+|---|---|---|---|---|
+| conv_head64 | 4198 -> 1755 (2.39x) | 1849 -> 830 (2.23x) | 4281 -> 1846 (2.32x) | `udsp_conv_direct`: four outputs' vectors side by side, each still one chain of adds over the taps in their order -- four in flight hide the add's latency |
+| resample | 3799 -> 2959 (1.28x) | 3510 -> 2232 (1.57x) | 3733 -> 2466 (1.51x) | `udsp_resample_cubic`: UDSP_W outputs at a time, each lane's points read side by side (`udsp_vcols4`, two fours for a stereo pair) and `udsp_vhermite` |
+| fdn | 32658 -> 26888 (1.21x) | 32650 -> 24457 (1.33x) | 31137 -> 26892 (1.16x) | the lines' pushes wait for the end of a 16-frame block (no read reaches nearer than the shortest line), then go in as runs; the outputs' sums across frames -- no lane picked apart a frame at a time |
+
+`udsp_resample_cubic` copies at a step of exactly one frame from a whole
+position (a sample at its root, at the output's rate: 95 % of ctui-daw's
+drum voices), what the cubic gives at x = 0 up to a zero's sign.
+`udsp_vcols4` (four floats from each lane's address, transposed) came
+out of `udsp_vtaps`, which now uses it, and tests its wrap with a
+movemask instead of a loop over the lanes.
+
+`udsp_vload` / `udsp_vstore` are a dereference of an unaligned
+`may_alias` vector type, no longer a memcpy: gcc 16 at -O2 splits a
+memcpy into a vector that is then carried round a loop into two 8-byte
+loads and keeps the vector on the stack -- conv_direct's four sums cost
+a store and a load a tap and came out 1.24x *slower* than one sum
+(5221 ns), 2.39x faster once loaded directly. Elsewhere only clang's
+disperse64 moved, 1.10x faster (74 -> 67 us); the rest stayed within
+noise (a full matrix run against before, the outliers re-run back to
+back; the clang `sampler` row's -9 % is placement: its instructions
+are identical).

@@ -164,6 +164,78 @@ static void test_cubic_sine(void) {
                    worst_lin);
 }
 
+/* the resampler as it was, a frame at a time: the vector one and the
+ * whole-step copy must match it */
+static float ref_hermite(float ym1, float y0, float y1, float y2, float x) {
+  const float c1 = 0.5f * (y1 - ym1);
+  const float c2 = ym1 - 2.5f * y0 + 2.0f * y1 - 0.5f * y2;
+  const float c3 = 0.5f * (y2 - ym1) + 1.5f * (y0 - y1);
+  return ((c3 * x + c2) * x + c1) * x + y0;
+}
+
+static uint64_t ref_cubic(const float *w, uint32_t ch, uint64_t pos,
+                          uint64_t step, float *out, size_t frames) {
+  for (size_t f = 0; f < frames; f++) {
+    const float x =
+        (float)(uint32_t)(pos & 0xffffffffull) * (1.0f / 4294967296.0f);
+    const float *p = w + ((pos >> 32) - 1) * ch;
+    const float l = ref_hermite(p[0], p[ch], p[2 * ch], p[3 * ch], x);
+    out[f * 2] = l;
+    out[f * 2 + 1] =
+        ch == 2 ? ref_hermite(p[1], p[ch + 1], p[2 * ch + 1], p[3 * ch + 1], x)
+                : l;
+    pos += step;
+  }
+  return pos;
+}
+
+/* random windows (zeros of both signs among them), steps (whole ones
+ * too), start fractions, lengths, mono and stereo: the bits of the
+ * frame-at-a-time loop -- a whole step's copy up to a zero's sign */
+static void test_cubic_against_ref(void) {
+  enum { W = 1200, F = 150 };
+  static float w[W * 2], got[F * 2], want[F * 2];
+  uint32_t seed = 11;
+  for (int i = 0; i < W * 2; i++) {
+    seed = seed * 1664525u + 1013904223u;
+    const uint32_t x = seed >> 8;
+    w[i] = x % 9 == 0   ? 0.0f
+           : x % 9 == 1 ? -0.0f
+                        : (float)(x % 20001) / 10000.0f - 1.0f;
+  }
+  int same = 1, whole = 1;
+  for (int run = 0; run < 3000; run++) {
+    seed = seed * 1664525u + 1013904223u;
+    const uint32_t x = seed >> 8;
+    const uint32_t ch = 1 + (x & 1);
+    const size_t n = (x >> 1) % F;
+    const int unity = (x >> 9) % 4 == 0;
+    seed = seed * 1664525u + 1013904223u;
+    /* up to 7 frames a frame: the window holds what n of them read */
+    const uint64_t step =
+        unity ? 1ull << 32
+              : (uint64_t)(seed % (7u << 16)) << 16 | (seed & 0xffff);
+    seed = seed * 1664525u + 1013904223u;
+    const uint64_t pos =
+        ((uint64_t)(1 + seed % 20) << 32) | (unity && (x >> 11) & 1 ? 0 : seed);
+    if (udsp_resample_window(pos, step, n) > W) {
+      continue;
+    }
+    const uint64_t e1 = udsp_resample_cubic(w, ch, pos, step, got, n);
+    const uint64_t e2 = ref_cubic(w, ch, pos, step, want, n);
+    if (step == 1ull << 32 && !(uint32_t)pos) {
+      for (size_t i = 0; i < n * 2; i++) {
+        whole &= got[i] == want[i];
+      }
+      whole &= e1 == e2;
+    } else {
+      same &= e1 == e2 && !memcmp(got, want, n * 2 * sizeof(float));
+    }
+  }
+  UDSP_TEST_ASSERT(same, "the cubic: the frame-at-a-time loop's bits");
+  UDSP_TEST_ASSERT(whole, "whole steps: its values, a zero's sign aside");
+}
+
 int main(void) {
   test_root_note_plays_unchanged();
   test_octave_up_skips_frames();
@@ -174,5 +246,6 @@ int main(void) {
   test_step();
   test_cubic_exact();
   test_cubic_sine();
+  test_cubic_against_ref();
   return udsp_test_summary();
 }
