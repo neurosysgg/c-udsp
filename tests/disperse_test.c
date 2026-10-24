@@ -117,9 +117,74 @@ static void test_blocks(void) {
   }
 }
 
+/* every stage count the bits of a stage at a time: the wavefront's lanes
+ * past the last stage (a remainder short of a whole wavefront, padded)
+ * pass their input on and keep no state. The amount moves down and up
+ * between blocks, so stages leave (their state at rest) and come back. */
+static float ref_ic[UDSP_DISPERSE_MAX][2][2];
+
+static void ref_run(const UDSP_DISPERSE *d, float *io, size_t frames) {
+  const int n = d->whole + (d->frac > 0.0f && d->whole < UDSP_DISPERSE_MAX);
+  for (int i = 0; i < n; i++) {
+    const UDSP_DISPERSE_STAGE *s = &d->st[i];
+    const float w = (i < d->whole ? 1.0f : d->frac) * 2.0f * d->k;
+    for (size_t f = 0; f < frames; f++) {
+      for (int c = 0; c < 2; c++) {
+        float *ic = ref_ic[i][c];
+        const float in = io[2 * f + c];
+        const float v3 = in - ic[1];
+        const float v1 = s->a1 * ic[0] + s->a2 * v3;
+        const float v2 = ic[1] + s->a2 * ic[0] + s->a3 * v3;
+        ic[0] = 2.0f * v1 - ic[0];
+        ic[1] = 2.0f * v2 - ic[1];
+        io[2 * f + c] = in - w * v1;
+      }
+    }
+  }
+  memset(ref_ic[n], 0, (size_t)(UDSP_DISPERSE_MAX - n) * sizeof ref_ic[0]);
+}
+
+static void test_reference(void) {
+  enum { F = 1200 };
+  static float in[2 * F], got[2 * F], want[2 * F];
+  for (int i = 0; i < 2 * F; i++) {
+    in[i] = (float)sin(0.21 * i + (i & 1)) * (i % 5 == 0 ? -0.7f : 0.4f);
+  }
+  static const size_t BLOCK[] = {300, 7, 64, 1, 33, 256, 2, 129};
+  float bad = 0.0f; /* the first amount that differs */
+  for (int a = 1; a <= 2 * 66 && bad == 0.0f; a++) {
+    /* whole and half amounts, and between blocks a few stages less, then
+     * more (the last block's back at the amount) */
+    const float amount = 0.5f * (float)a;
+    static UDSP_DISPERSE d;
+    udsp_disperse_reset(&d);
+    memset(ref_ic, 0, sizeof ref_ic);
+    memcpy(got, in, sizeof in);
+    memcpy(want, in, sizeof in);
+    for (size_t at = 0, b = 0; at < F; b++) {
+      static const float MOVE[] = {0, -5, 3, 0, -1.5f, 9, -12, 0};
+      const float m = amount + MOVE[b % 8];
+      udsp_disperse_set(&d, m < 0.5f ? 0.5f : m, 700.0f, 1.5f, 2.5f, RATE);
+      size_t k = BLOCK[b % 8];
+      k = k > F - at ? F - at : k;
+      udsp_disperse_stereo(&d, got + 2 * at, k);
+      ref_run(&d, want + 2 * at, k);
+      at += k;
+    }
+    if (memcmp(got, want, sizeof got) || memcmp(d.ic, ref_ic, sizeof ref_ic)) {
+      bad = amount;
+    }
+  }
+  UDSP_TEST_ASSERT(bad == 0.0f,
+                   "0.5 .. 66 stages, moving: a stage at a time's bits "
+                   "(first differing: %.1f)",
+                   (double)bad);
+}
+
 int main(void) {
   printf("disperse_test\n");
   test_blocks();
+  test_reference();
   test_level();
   test_smear();
   test_fan();

@@ -567,6 +567,47 @@ in and out) -- no faster in ctui-daw's projects, where most synths have
 one or two voices sounding: the transposes and idle lanes cost what the
 overlap saves.
 
+### The disperser's remainder, a broadcast's -0 (session 263)
+
+ctui-daw's Disperser (its s7 list's item 2). Its amount is a continuous
+knob, but the stages past the last whole wavefront (16 at AVX, 8 at SSE)
+ran a stage at a time: at -v3, 41 stages cost more than 64. Now a
+remainder runs as a wavefront of its own, one vector wide when it fits
+in one, its lanes past the last stage zero (coefficients and state:
+they pass their input on, -0 too, and keep nothing). A single leftover
+stage stays scalar under gcc, where its two chains beat a vector of pads
+(17 stages at -v3 17.6 -> 13.0 us per 1024 frames), not under clang;
+two or more always lose (`-DWAVE_SCALAR=N`, swept 0-3). The lanes are
+set up as floats, then a load a vector (eq.c's, session 262; it also
+ends gcc's `-Wmaybe-uninitialized` there).
+
+On the way: `udsp_vsplat` was `(UDSP_VF){0} + x`, and +0 + -0 is +0, so
+every vector path broadcasting a -0 lost its sign where the scalar build
+kept it -- disperse_test's new reference (every amount 0.5-66, moving
+between uneven blocks, against a stage at a time) failed on HEAD at 7.5
+stages on SSE. Now a broadcast. ulp.c's whole table identical to
+HEAD's in all eleven builds, raw hashes compared (its corpus has no
+-0). ns per call (`results/s263-before.tsv`, `s263-after.tsv`):
+
+| kernel | gcc-O2 | gcc-O2-v3 | clang-O2 | clang-O2-v3 |
+|---|---|---|---|---|
+| disperse64 | 90760 -> 66320 (1.37x) | 36612 -> 35759 (1.02x) | 67543 -> 57732 (1.17x) | 35949 -> 29328 (1.23x) |
+
+A scratch sweep (1024 frames in calls of 256 and 32, best of five
+alternated), us old -> new, calls of 256:
+
+| stages | gcc-O2 | gcc-O2-v3 | clang-O2 | clang-O2-v3 |
+|---|---|---|---|---|
+| 9 | 13.2 -> 12.1 | 24.2 -> 9.3 | 15.1 -> 12.4 | 26.6 -> 8.8 |
+| 20 | 29.1 -> 23.6 | 19.9 -> 17.6 | 33.5 -> 19.8 | 21.3 -> 15.3 |
+| 32 | 42.5 -> 34.0 | 18.9 -> 18.7 | 33.9 -> 29.5 | 21.3 -> 17.8 |
+| 40.5 | 58.2 -> 46.1 | 43.4 -> 28.1 | 48.9 -> 41.9 | 48.2 -> 26.5 |
+| 64 | 74.6 -> 68.0 | 37.8 -> 37.6 | 67.7 -> 59.0 | 42.6 -> 35.5 |
+
+In calls of 32 the same or better but gcc -v3 without a remainder (32,
+64 stages: 0.97x, the setup's stores); ctui-daw now calls the disperser
+with whole blocks once its knobs settle.
+
 ### The EQ's wavefront: two lanes a section, two steps a hand-off (session 262)
 
 ctui-daw's EQ Eight (its s7 list: 17 % of dubstep's render, 52

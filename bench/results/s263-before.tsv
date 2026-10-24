@@ -1,0 +1,4 @@
+gcc-O2	disperse64	1024	90760.3	87741.9
+gcc-O2-v3	disperse64	1024	36611.9	36214.4
+clang-O2	disperse64	1024	67543.1	66972.4
+clang-O2-v3	disperse64	1024	35949.1	35611.0

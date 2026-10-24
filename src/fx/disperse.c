@@ -79,55 +79,75 @@ stages(const UDSP_DISPERSE_STAGE *st, const float *w, float (*ic)[2][2],
 }
 
 #if UDSP_W > 1
-/* WAVE stages in vector lanes, a wavefront: lane k is stage k at the
+/* G vectors of stages in lanes, a wavefront: lane k is stage k at the
  * frame k steps behind lane 0's, its input the output lane k - 1 made a
  * step before. Each stage still runs its frames in order through tick()'s
  * operations, so the bits are a stage at a time's; but the chains of a
- * step are all independent, WAVE of them a channel. At the block's ends
- * (the first and last WAVE - 1 steps) the lanes without a frame of
- * their own keep their state. */
+ * step are all independent, G * UDSP_W of them a channel. At the block's
+ * ends (the first and last G * UDSP_W - 1 steps) the lanes without a
+ * frame of their own keep their state. Lanes past the m stages pass
+ * their input on as it is (zero coefficients and state: v1 = +0, out =
+ * x - +0 = x, -0 too) and keep no state, so a remainder short of a
+ * wavefront still runs as one instead of a stage at a time. */
 #define WAVE_G 2 /* vectors of stages: two keep enough chains in flight */
 #define WAVE (WAVE_G * UDSP_W)
-static void wavefront(const UDSP_DISPERSE_STAGE *st, const float *w,
-                      float (*ic)[2][2], float *io, size_t frames) {
+static inline __attribute__((always_inline)) void
+wavefront(const UDSP_DISPERSE_STAGE *st, const float *w, float (*ic)[2][2],
+          float *io, size_t frames, int m, const int G) {
+  const int lanes = G * UDSP_W;
   UDSP_VF a1[WAVE_G], a2[WAVE_G], a3[WAVE_G], wv[WAVE_G];
   UDSP_VF s1[2][WAVE_G], s2[2][WAVE_G], out[2][WAVE_G];
   UDSP_VI lane[WAVE_G];
-  for (int g = 0; g < WAVE_G; g++) {
-    for (int j = 0; j < UDSP_W; j++) {
-      const int k = g * UDSP_W + j;
-      a1[g][j] = st[k].a1;
-      a2[g][j] = st[k].a2;
-      a3[g][j] = st[k].a3;
-      wv[g][j] = w[k];
-      lane[g][j] = k;
-      for (int c = 0; c < 2; c++) {
-        s1[c][g][j] = ic[k][c][0];
-        s2[c][g][j] = ic[k][c][1];
-        out[c][g][j] = 0.0f;
-      }
+  /* the lanes as floats first, then a vector load each (eq.c's: lanes
+   * stored one at a time into a vector in memory don't forward to its
+   * load) */
+  float f[8][WAVE];
+  int ln[WAVE];
+  for (int k = 0; k < lanes; k++) {
+    const UDSP_DISPERSE_STAGE z = {0}, *sk = k < m ? &st[k] : &z;
+    f[0][k] = sk->a1;
+    f[1][k] = sk->a2;
+    f[2][k] = sk->a3;
+    f[3][k] = k < m ? w[k] : 0.0f;
+    for (int c = 0; c < 2; c++) {
+      f[4 + 2 * c][k] = k < m ? ic[k][c][0] : 0.0f;
+      f[5 + 2 * c][k] = k < m ? ic[k][c][1] : 0.0f;
     }
+    ln[k] = k;
   }
-  const size_t steps = frames + WAVE - 1;
+  for (int g = 0; g < G; g++) {
+    const int at = g * UDSP_W;
+    a1[g] = udsp_vload(f[0] + at);
+    a2[g] = udsp_vload(f[1] + at);
+    a3[g] = udsp_vload(f[2] + at);
+    wv[g] = udsp_vload(f[3] + at);
+    for (int c = 0; c < 2; c++) {
+      s1[c][g] = udsp_vload(f[4 + 2 * c] + at);
+      s2[c][g] = udsp_vload(f[5 + 2 * c] + at);
+      out[c][g] = (UDSP_VF){0};
+    }
+    memcpy(&lane[g], ln + at, sizeof lane[g]);
+  }
+  const size_t steps = frames + (size_t)lanes - 1;
   for (size_t n = 0; n < steps; n++) {
-    const int edge = n < WAVE - 1 || n >= frames;
+    const int edge = n < (size_t)lanes - 1 || n >= frames;
     for (int c = 0; c < 2; c++) {
       UDSP_VF x[WAVE_G];
       x[0] = udsp_vshift_in(out[c][0], n < frames ? io[2 * n + c] : 0.0f);
       UDSP_UNROLL
-      for (int g = 1; g < WAVE_G; g++) {
+      for (int g = 1; g < G; g++) {
         x[g] = udsp_vshift_in(out[c][g], out[c][g - 1][UDSP_W - 1]);
       }
       UDSP_UNROLL
-      for (int g = 0; g < WAVE_G; g++) {
+      for (int g = 0; g < G; g++) {
         const UDSP_VF v3 = x[g] - s2[c][g];
         const UDSP_VF v1 = a1[g] * s1[c][g] + a2[g] * v3;
         const UDSP_VF v2 = s2[c][g] + a2[g] * s1[c][g] + a3[g] * v3;
         const UDSP_VF n1 = 2.0f * v1 - s1[c][g], n2 = 2.0f * v2 - s2[c][g];
         out[c][g] = x[g] - wv[g] * v1;
         if (edge) {
-          const UDSP_VI f = (int)n - lane[g];
-          const UDSP_VI ok = (f >= 0) & (f < (int)frames);
+          const UDSP_VI fr = (int)n - lane[g];
+          const UDSP_VI ok = (fr >= 0) & (fr < (int)frames);
           s1[c][g] = udsp_vsel(ok, n1, s1[c][g]);
           s2[c][g] = udsp_vsel(ok, n2, s2[c][g]);
         } else {
@@ -135,19 +155,46 @@ static void wavefront(const UDSP_DISPERSE_STAGE *st, const float *w,
           s2[c][g] = n2;
         }
       }
-      if (n >= WAVE - 1) {
-        io[2 * (n - (WAVE - 1)) + c] = out[c][WAVE_G - 1][UDSP_W - 1];
+      if (n >= (size_t)lanes - 1) {
+        io[2 * (n - ((size_t)lanes - 1)) + c] = out[c][G - 1][UDSP_W - 1];
       }
     }
   }
-  for (int g = 0; g < WAVE_G; g++) {
-    for (int j = 0; j < UDSP_W; j++) {
-      for (int c = 0; c < 2; c++) {
-        ic[g * UDSP_W + j][c][0] = s1[c][g][j];
-        ic[g * UDSP_W + j][c][1] = s2[c][g][j];
-      }
+  for (int g = 0; g < G; g++) {
+    for (int c = 0; c < 2; c++) {
+      udsp_vstore(f[4 + 2 * c] + g * UDSP_W, s1[c][g]);
+      udsp_vstore(f[5 + 2 * c] + g * UDSP_W, s2[c][g]);
     }
   }
+  for (int k = 0; k < m; k++) {
+    for (int c = 0; c < 2; c++) {
+      ic[k][c][0] = f[4 + 2 * c][k];
+      ic[k][c][1] = f[5 + 2 * c][k];
+    }
+  }
+}
+
+/* a remainder of up to this many stages a stage at a time instead: one
+ * stage's two chains beat a vector of pads under gcc (17 stages at -v3
+ * 17.6 -> 13.0 us per 1024 frames, SSE2 23.6 -> 20.6), not under clang
+ * (SSE2's 9 stages 12.2 -> 14.1); two or more always lose.
+ * -DWAVE_SCALAR=N forces it (bench/README.md "session 263") */
+#ifndef WAVE_SCALAR
+#ifdef __clang__
+#define WAVE_SCALAR 0
+#else
+#define WAVE_SCALAR 1
+#endif
+#endif
+
+static void wave_full(const UDSP_DISPERSE_STAGE *st, const float *w,
+                      float (*ic)[2][2], float *io, size_t frames, int m) {
+  wavefront(st, w, ic, io, frames, m, WAVE_G);
+}
+
+static void wave_one(const UDSP_DISPERSE_STAGE *st, const float *w,
+                     float (*ic)[2][2], float *io, size_t frames, int m) {
+  wavefront(st, w, ic, io, frames, m, 1);
 }
 #endif
 
@@ -160,8 +207,10 @@ void udsp_disperse_stereo(UDSP_DISPERSE *d, float *io, size_t frames) {
   }
   int i = 0;
 #if UDSP_W > 1
-  for (; i + WAVE <= n; i += WAVE) {
-    wavefront(d->st + i, w + i, d->ic + i, io, frames);
+  for (; i < n && n - i > WAVE_SCALAR; i += WAVE) {
+    const int m = n - i < WAVE ? n - i : WAVE;
+    (m > UDSP_W ? wave_full : wave_one)(d->st + i, w + i, d->ic + i, io, frames,
+                                        m);
   }
 #endif
   for (; i + GROUP <= n; i += GROUP) {

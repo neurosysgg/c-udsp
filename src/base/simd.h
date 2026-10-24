@@ -72,7 +72,15 @@ static inline UDSP_VF udsp_vload(const float *p) {
   return *(const UDSP_VFU *)p;
 }
 static inline void udsp_vstore(float *p, UDSP_VF v) { *(UDSP_VFU *)p = v; }
-static inline UDSP_VF udsp_vsplat(float x) { return (UDSP_VF){0} + x; }
+/* x in every lane: a broadcast, not 0 + x (+0 + -0 is +0: the scalar
+ * build kept a -0 the vector paths lost, session 263) */
+static inline UDSP_VF udsp_vsplat(float x) {
+#if UDSP_W == 8
+  return (UDSP_VF){x, x, x, x, x, x, x, x};
+#else
+  return (UDSP_VF){x, x, x, x};
+#endif
+}
 /* a > b ? a : b per lane, and |a|: the target's own instructions where it
  * has them. The generic form (a compare and a blend: vector ?: is C++-only
  * in gcc) is right everywhere, but gcc doesn't fold it back into maxps and
