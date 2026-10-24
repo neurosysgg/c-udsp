@@ -304,14 +304,16 @@ static float slope_of(float ratio) {
   return ratio >= 1e9f ? 0.0f : 1.0f / (ratio < 1.0f ? 1.0f : ratio);
 }
 
-void udsp_udcomp_set(UDSP_UDCOMP *c, float above_db, float above_ratio,
-                     float below_db, float below_ratio, float up_max_db,
-                     float floor_db, float attack_ms, float release_ms, int rms,
-                     unsigned rate) {
+void udsp_udcomp_set_slopes(UDSP_UDCOMP *c, float above_db, float above_slope,
+                            float below_db, float below_slope, float knee_db,
+                            float up_max_db, float floor_db, float attack_ms,
+                            float release_ms, int rms, unsigned rate) {
   c->a_thr = above_db;
   c->b_thr = below_db < above_db ? below_db : above_db;
-  c->a_slope = slope_of(above_ratio) - 1.0f;
-  c->b_slope = 1.0f - slope_of(below_ratio);
+  c->a_slope = (above_slope < 0.0f ? 0.0f : above_slope) - 1.0f;
+  c->b_slope = 1.0f - (below_slope < 0.0f ? 0.0f : below_slope);
+  c->knee = knee_db > 0.0f ? knee_db : 0.0f;
+  c->knee_inv = c->knee > 0.0f ? 0.5f / c->knee : 0.0f;
   c->up_max = up_max_db < 0.0f ? 0.0f : up_max_db;
   c->floor = floor_db;
   c->att = pole(attack_ms, rate);
@@ -320,30 +322,73 @@ void udsp_udcomp_set(UDSP_UDCOMP *c, float above_db, float above_ratio,
   c->rms = rms;
 }
 
-/* the gain (dB) the curve asks for at level x */
+void udsp_udcomp_set(UDSP_UDCOMP *c, float above_db, float above_ratio,
+                     float below_db, float below_ratio, float up_max_db,
+                     float floor_db, float attack_ms, float release_ms, int rms,
+                     unsigned rate) {
+  udsp_udcomp_set_slopes(c, above_db, slope_of(above_ratio), below_db,
+                         slope_of(below_ratio), 0.0f, up_max_db, floor_db,
+                         attack_ms, release_ms, rms, rate);
+}
+
+/* the gain (dB) the curve asks for at level x: above's and below's, each
+ * a line past its threshold and a parabola across its knee (a knee of 0
+ * never takes the parabola: 2 d can't be both under 0 and over -0) */
 static inline float ud_gain(const UDSP_UDCOMP *c, float x) {
-  if (x > c->a_thr) {
-    return c->a_slope * (x - c->a_thr);
+  const float w = c->knee;
+  const float da = x - c->a_thr, db = x - c->b_thr;
+  float hi = 0.0f, lo = 0.0f;
+  if (2.0f * da >= w) {
+    hi = c->a_slope * da;
+  } else if (2.0f * da > -w) {
+    const float e = da + 0.5f * w;
+    hi = c->a_slope * e * e * c->knee_inv;
   }
-  if (x < c->b_thr && x > c->floor) {
-    const float up = c->b_slope * (c->b_thr - x);
-    return up < c->up_max ? up : c->up_max;
+  if (2.0f * db <= -w) {
+    lo = c->b_slope * (c->b_thr - x);
+  } else if (2.0f * db < w) {
+    const float e = db - 0.5f * w;
+    lo = c->b_slope * e * e * c->knee_inv;
   }
-  return 0.0f;
+  if (lo > 0.0f && x <= c->floor) {
+    lo = 0.0f;
+  }
+  lo = lo < -UDSP_UDCOMP_DEPTH ? -UDSP_UDCOMP_DEPTH : lo;
+  const float g = hi + lo;
+  return g < c->up_max ? g : c->up_max;
 }
 
 /* the curve's gain (dB) for each level in x, in place */
 static void ud_want(const UDSP_UDCOMP *c, float *x, size_t frames) {
   size_t i = 0;
 #if UDSP_W > 1
+  const float w = c->knee, half = 0.5f * w, inv = c->knee_inv;
+  const UDSP_VF zero = udsp_vsplat(0.0f);
+  /* no knee: the lines alone (the same values: 2 d >= 0 is d >= 0) */
+  for (; w == 0.0f && i + UDSP_W <= frames; i += UDSP_W) {
+    const UDSP_VF v = udsp_vload(x + i);
+    const UDSP_VF hi =
+        udsp_vsel(v >= c->a_thr, c->a_slope * (v - c->a_thr), zero);
+    UDSP_VF lo = c->b_slope * (c->b_thr - v);
+    lo = udsp_vsel((v <= c->b_thr) & ((lo <= 0.0f) | (v > c->floor)), lo, zero);
+    lo =
+        udsp_vsel(lo < -UDSP_UDCOMP_DEPTH, udsp_vsplat(-UDSP_UDCOMP_DEPTH), lo);
+    const UDSP_VF g = hi + lo;
+    udsp_vstore(x + i, udsp_vsel(g < c->up_max, g, udsp_vsplat(c->up_max)));
+  }
   for (; i + UDSP_W <= frames; i += UDSP_W) {
     const UDSP_VF v = udsp_vload(x + i);
-    const UDSP_VF down = c->a_slope * (v - c->a_thr);
-    UDSP_VF up = c->b_slope * (c->b_thr - v);
-    up = udsp_vsel(up < c->up_max, up, udsp_vsplat(c->up_max));
-    const UDSP_VF r =
-        udsp_vsel((v < c->b_thr) & (v > c->floor), up, udsp_vsplat(0.0f));
-    udsp_vstore(x + i, udsp_vsel(v > c->a_thr, down, r));
+    const UDSP_VF da = v - c->a_thr, db = v - c->b_thr;
+    const UDSP_VF ea = da + half, eb = db - half;
+    UDSP_VF hi = udsp_vsel(2.0f * da > -w, c->a_slope * ea * ea * inv, zero);
+    hi = udsp_vsel(2.0f * da >= w, c->a_slope * da, hi);
+    UDSP_VF lo = udsp_vsel(2.0f * db < w, c->b_slope * eb * eb * inv, zero);
+    lo = udsp_vsel(2.0f * db <= -w, c->b_slope * (c->b_thr - v), lo);
+    lo = udsp_vsel((lo > 0.0f) & (v <= c->floor), zero, lo);
+    lo =
+        udsp_vsel(lo < -UDSP_UDCOMP_DEPTH, udsp_vsplat(-UDSP_UDCOMP_DEPTH), lo);
+    const UDSP_VF g = hi + lo;
+    udsp_vstore(x + i, udsp_vsel(g < c->up_max, g, udsp_vsplat(c->up_max)));
   }
 #endif
   for (; i < frames; i++) {

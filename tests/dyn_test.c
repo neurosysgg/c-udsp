@@ -231,6 +231,70 @@ static void test_udcomp(void) {
                    (double)boost);
 }
 
+/* by slopes: compressing above, expanding below, the expansion's depth
+ * held, a knee across both, the curve smooth through each */
+static void test_udcomp_slopes(void) {
+  UDSP_UDCOMP c;
+  udsp_udcomp_set_slopes(&c, -20.0f, 0.5f, -40.0f, 4.0f, 0.0f, 12.0f, -80.0f,
+                         5.0f, 50.0f, 0, RATE);
+  const float above = ud_settled(&c, -10.0f), below = ud_settled(&c, -46.0f);
+  const float deep = ud_settled(&c, -95.0f);
+  UDSP_TEST_ASSERT(fabsf(above + 5.0f) < 0.01f && fabsf(below + 18.0f) < 0.01f,
+                   "10 dB over at a slope of 0.5: -5 dB (%.3f); 6 dB under at "
+                   "4: -18 dB (%.3f)",
+                   (double)above, (double)below);
+  UDSP_TEST_ASSERT(
+      fabsf(udsp_udcomp_curve(&c, -95.0f) + 95.0f + 120.0f) < 1e-3f &&
+          deep < -100.0f,
+      "under the floor, expanding: held at -120 dB (%.1f)", (double)deep);
+  /* upward compression to the full: slope 0 pins the level */
+  udsp_udcomp_set_slopes(&c, 0.0f, 1.0f, -30.0f, 0.0f, 0.0f, 30.0f, -80.0f,
+                         5.0f, 50.0f, 0, RATE);
+  UDSP_TEST_ASSERT(fabsf(udsp_udcomp_curve(&c, -50.0f) + 30.0f) < 1e-4f,
+                   "slope 0 below: -50 -> -30");
+  /* expanding upward above: a boost, capped */
+  udsp_udcomp_set_slopes(&c, -20.0f, 2.0f, -40.0f, 1.0f, 0.0f, 6.0f, -80.0f,
+                         5.0f, 50.0f, 0, RATE);
+  UDSP_TEST_ASSERT(fabsf(udsp_udcomp_curve(&c, -17.0f) + 14.0f) < 1e-4f &&
+                       fabsf(udsp_udcomp_curve(&c, -5.0f) + 5.0f - 6.0f) <
+                           1e-4f,
+                   "slope 2 above: -17 -> -14, -5 at the 6 dB cap");
+  /* a 10 dB knee: at a threshold a quarter of the line's 5 dB, the curve
+   * continuous with the lines at the knee's ends and its slope too */
+  udsp_udcomp_set_slopes(&c, -20.0f, 0.0f, -40.0f, 3.0f, 10.0f, 30.0f, -100.0f,
+                         5.0f, 50.0f, 0, RATE);
+  const float at = udsp_udcomp_curve(&c, -20.0f) + 20.0f;
+  const float at_lo = udsp_udcomp_curve(&c, -40.0f) + 40.0f;
+  UDSP_TEST_ASSERT(fabsf(at + 1.25f) < 1e-4f && fabsf(at_lo + 2.5f) < 1e-4f,
+                   "the knees at the thresholds: -1.25 (%.4f), -2.5 (%.4f)",
+                   (double)at, (double)at_lo);
+  float worst = 0.0f;
+  for (int i = 0; i < 6000; i++) {
+    const float x = -60.0f + 0.01f * (float)i;
+    const float d = udsp_udcomp_curve(&c, x + 0.01f) - udsp_udcomp_curve(&c, x);
+    const float d2 =
+        udsp_udcomp_curve(&c, x + 0.02f) - udsp_udcomp_curve(&c, x + 0.01f);
+    worst = fabsf(d2 - d) > worst ? fabsf(d2 - d) : worst;
+  }
+  UDSP_TEST_ASSERT(worst < 1e-3f, "no corner along the curve (%.5f)",
+                   (double)worst);
+  /* knees overlapping (thresholds 4 dB apart, a 12 dB knee): both add */
+  udsp_udcomp_set_slopes(&c, -20.0f, 0.25f, -24.0f, 0.5f, 12.0f, 30.0f, -100.0f,
+                         5.0f, 50.0f, 0, RATE);
+  const float mid = udsp_udcomp_curve(&c, -22.0f) + 22.0f;
+  const float want = -0.75f * 4.0f * 4.0f / 24.0f + 0.5f * 4.0f * 4.0f / 24.0f;
+  UDSP_TEST_ASSERT(fabsf(mid - want) < 1e-4f, "overlapping: %.4f (%.4f)",
+                   (double)mid, (double)want);
+  /* the settled gain is the curve's, through the vector path too */
+  int same = 1;
+  for (int i = 0; i < 10; i++) {
+    const float lvl = -70.0f + 7.3f * (float)i;
+    same &=
+        fabsf(ud_settled(&c, lvl) - (udsp_udcomp_curve(&c, lvl) - lvl)) < 0.01f;
+  }
+  UDSP_TEST_ASSERT(same, "settled gains on the curve");
+}
+
 /* side by side, the same bits as one at a time: a peak and two RMS
  * detectors, their own times, over blocks (their state carried) */
 static void test_udcomp_gains(void) {
@@ -274,6 +338,7 @@ int main(void) {
   test_gate();
   test_limiter();
   test_udcomp();
+  test_udcomp_slopes();
   test_udcomp_gains();
   return udsp_test_summary();
 }

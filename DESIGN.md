@@ -217,7 +217,9 @@ dyn.c       a float log2 / exp2 of its own (no libm); UDSP_COMP (a soft
             (hysteresis, hold, a floor) -- both a gain from a key, the
             caller applying it (a sidechain) -- UDSP_UDCOMP, a band of
             Multiband Dynamics (down above one threshold, up below another,
-            the boost capped, none under a floor) -- and UDSP_LIMITER, a
+            the boost capped, none under a floor; by slopes either side
+            of 1 -- expansion too, its cut held at -120 dB -- and a soft
+            knee round each threshold: Kilohearts' Dynamics) -- and UDSP_LIMITER, a
             brickwall over a lookahead (the needed gain held at its
             window's minimum, released, averaged over the window: no
             sample past the ceiling)

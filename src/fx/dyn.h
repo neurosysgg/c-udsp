@@ -59,23 +59,31 @@ void udsp_comp_gain(UDSP_COMP *c, const float *key, float *gain, size_t frames);
 float udsp_comp_curve(const UDSP_COMP *c, float in_db);
 
 /* --- the up / down compressor ------------------------------------------
- * A band of Ableton's Multiband Dynamics (OTT's): above one threshold
- * the level is pulled down by its ratio, below another pulled up toward
- * it by its ratio (upward compression), in between left alone. The gain
- * (dB, either sign) is smoothed as the compressor's: attack while it
- * falls, release while it rises -- so a boost comes in at the release's
- * pace once the level drops. The boost stops at `up_max` dB, and a key
- * under `floor` dB (silence, a tail's last bit) gets none: upward
- * compression would otherwise lift the noise floor without end. */
+ * A band of Ableton's Multiband Dynamics (OTT's), Kilohearts' Dynamics
+ * too: above one threshold the level's slope is one of its own (under 1
+ * pulled down -- compression; over 1 pushed up), below another one too
+ * (under 1 pulled up toward it -- upward compression; over 1 pushed down
+ * -- expansion), in between left alone; a soft knee of `knee` dB round
+ * each threshold (Giannoulis et al.'s, as the compressor's; two knees
+ * overlapping add up). The gain (dB, either sign) is smoothed as the
+ * compressor's: attack while it falls, release while it rises -- so a
+ * boost comes in at the release's pace once the level drops. A boost
+ * stops at `up_max` dB, a key under `floor` dB (silence, a tail's last
+ * bit) gets none from below -- upward compression would otherwise lift
+ * the noise floor without end --, and an expansion's cut stops at
+ * UDSP_UDCOMP_DEPTH dB. */
+
+#define UDSP_UDCOMP_DEPTH 120.0f
 
 typedef struct {
-  float a_thr, a_slope; /* above: 1 / ratio - 1 */
-  float b_thr, b_slope; /* below: 1 - 1 / ratio */
+  float a_thr, a_slope; /* above: its slope - 1 */
+  float b_thr, b_slope; /* below: 1 - its slope */
   float up_max, floor;
   float att, rel, ms_coef;
   int rms;
   float db; /* the smoothed gain, dB */
   float ms;
+  float knee, knee_inv; /* dB; 1 / (2 knee), 0 without one */
 } UDSP_UDCOMP;
 
 void udsp_udcomp_reset(UDSP_UDCOMP *c);
@@ -86,6 +94,15 @@ void udsp_udcomp_set(UDSP_UDCOMP *c, float above_db, float above_ratio,
                      float below_db, float below_ratio, float up_max_db,
                      float floor_db, float attack_ms, float release_ms, int rms,
                      unsigned rate);
+
+/* the same by slopes (dB out a dB in) beyond each threshold, >= 0 --
+ * above: 1 / ratio compressing, over 1 expanding upward; below: 1 / ratio
+ * compressing upward, over 1 expanding (0: infinity either way) -- and a
+ * knee >= 0 dB; udsp_udcomp_set is slopes 1 / ratio and no knee */
+void udsp_udcomp_set_slopes(UDSP_UDCOMP *c, float above_db, float above_slope,
+                            float below_db, float below_slope, float knee_db,
+                            float up_max_db, float floor_db, float attack_ms,
+                            float release_ms, int rms, unsigned rate);
 
 /* the gain (linear) for each of frames frames of key into gain */
 void udsp_udcomp_gain(UDSP_UDCOMP *c, const float *key, float *gain,

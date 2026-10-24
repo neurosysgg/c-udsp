@@ -727,6 +727,15 @@ static double k_bands(const float *x, size_t n) {
     udsp_udcomp_gain(&c, x, g_got, n / 2);
     hash_floats(g_got, n / 2);
   }
+  /* by slopes: expanding below, a knee across both thresholds */
+  for (int rms = 0; rms < 2; rms++) {
+    UDSP_UDCOMP c;
+    udsp_udcomp_reset(&c);
+    udsp_udcomp_set_slopes(&c, -24.0f, 0.1f, -30.0f, 6.0f, 9.0f, 24.0f, -80.0f,
+                           0.5f, 40.0f, rms, 48000);
+    udsp_udcomp_gain(&c, x, g_got, n / 2);
+    hash_floats(g_got, n / 2);
+  }
   return 0.0;
 }
 
