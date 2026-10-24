@@ -123,6 +123,7 @@ There's no single umbrella header — include only what you need
 #include "offline/sinc.h"    /* UDSP_SINC -- a Kaiser-windowed sinc resampler */
 #include "offline/stretch.h" /* udsp_stretch -- a phase vocoder's time stretch */
 #include "offline/dither.h"  /* UDSP_DITHER -- TPDF dither ahead of a quantizer */
+#include "offline/irfb.h"    /* udsp_irfb -- an impulse response fed back through itself */
 ```
 
 Every function takes plain `float *` buffers the caller owns (input,

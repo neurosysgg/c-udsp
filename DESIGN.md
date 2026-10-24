@@ -24,7 +24,7 @@ src/synth/      making one: pitch, osc, wtab, lfo, adsr, openv, ramp,
 src/fx/         changing one, in a render: svf, zdf, eq, xover, disperse,
                 line, delay, fdn, dyn, shape, gain, conv
 src/offline/    changing one ahead of a render, at any cost: sinc,
-                stretch, dither
+                stretch, dither, irfb
 ```
 
 Each directory includes only `base/` and itself, with one exception:
@@ -250,6 +250,17 @@ stretch.c   a phase vocoder's time stretch, offline: Hann frames (~21 ms),
             angles its own series (no libm's atan2 / sin / cos), so the
             same bits on every libc (ctui-daw's convolver's pitch: the
             response stretched by the ratio, then read that much faster)
+irfb.c      an impulse response fed back through itself (Kilohearts'
+            Convolver's feedback, baked into ctui-daw's convolver's
+            response): H / (1 - g e^(-iwd) H) over one real transform
+            twice the frames kept, so what folds back from past it is
+            the tail at -90 dB (or what the cap leaves). The loop only
+            settles where |g H| < 1; the caller scales g by the peak
+            |H| (udsp_irfb_peak), so a gain under 1 always rings out.
+            The delay's rotation is the transform's own twiddle table:
+            no libm sin / cos, the same bits on every libc. A true-stereo
+            response is fed back channel by channel, not as a 2x2 loop
+            (the caller's to know)
 sinc.c      UDSP_SINC: an offline resampler -- a Kaiser-windowed sinc
             (120 dB), polyphase over the rates' reduced ratio (rows
             interpolated past 4096 phases), each row normalised to pass
