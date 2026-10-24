@@ -1,6 +1,8 @@
 #include "udsp_test.h"
 
 #include <math.h>
+#include <stdint.h>
+#include <string.h>
 
 #include "fx/shape.h"
 
@@ -59,9 +61,46 @@ static void test_shapes(void) {
       "tube: the halves flatten unevenly (0.5 and -0.33 at 1)");
 }
 
+/* udsp_shape_mix the bits of its expression a sample at a time, every
+ * curve: the curves' edges (+-1, +-3, 0 and -0, the turns' wrap), large
+ * and random values, odd lengths (the vector body and its tail) */
+static void test_shape_mix(void) {
+  enum { N = 1031 };
+  static float in[N], got[N], want[N];
+  static const float EDGE[] = {
+      0.0f,   -0.0f,   1.0f,   -1.0f,   3.0f,       -3.0f,       2.99f, -2.99f,
+      1e-30f, -1e-30f, 500.0f, -500.0f, 6.2831855f, -6.2831855f, 0.5f};
+  uint32_t r = 12345;
+  for (int i = 0; i < N; i++) {
+    r = r * 1664525u + 1013904223u;
+    in[i] = i < 15 ? EDGE[i] : ((float)(r >> 8) / 16777216.0f - 0.5f) * 9.0f;
+  }
+  static const float DRIVE[] = {1.0f, 3.7f, 0.25f};
+  static const size_t LEN[] = {N, 7, 256, 257};
+  int same = 1;
+  for (int k = 0; k < UDSP_SHAPES; k++) {
+    for (int d = 0; d < 3; d++) {
+      for (int l = 0; l < 4; l++) {
+        const float g = DRIVE[d], m = 0.3f * (float)(d + 1), o = 0.9f;
+        memcpy(got, in, sizeof in);
+        udsp_shape_mix(got, LEN[l], (UDSP_SHAPE)k, g, m, o);
+        for (size_t i = 0; i < LEN[l]; i++) {
+          const float x = in[i];
+          want[i] =
+              (x * (1.0f - m) + udsp_shape1((UDSP_SHAPE)k, x * g) * m) * o;
+        }
+        same &= !memcmp(got, want, LEN[l] * sizeof(float));
+      }
+    }
+  }
+  UDSP_TEST_ASSERT(same, "shape_mix: every curve the bits of a sample at a "
+                         "time (edges, -0, odd lengths)");
+}
+
 int main(void) {
   test_softclip_values();
   test_vector_and_tail_agree();
   test_shapes();
+  test_shape_mix();
   return udsp_test_summary();
 }

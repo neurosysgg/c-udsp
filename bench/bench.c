@@ -549,6 +549,12 @@ static void k_softclip(void) {
   g_sink = g_out[9];
 }
 
+static void k_shape_mix(void) {
+  memcpy(g_out, g_in, N * sizeof(float));
+  udsp_shape_mix(g_out, N, UDSP_SHAPE_SOFT, 3.0f, 0.6f, 0.9f);
+  g_sink = g_out[9];
+}
+
 static void k_mix_add(void) {
   udsp_mix_add(g_out, g_in, N, 0.5f);
   g_sink = g_out[9];
@@ -634,6 +640,7 @@ static const KERNEL KERNELS[] = {
     {"openv", N, k_openv},
     {"delay", N, k_delay},
     {"softclip", N, k_softclip},
+    {"shape_mix", N, k_shape_mix},
     {"mix_add", N, k_mix_add},
     {"gain_stereo", N, k_gain_stereo},
     {"ramp_held", N, k_ramp_held},

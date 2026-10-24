@@ -118,7 +118,7 @@ differ from `gcc-O2-scalar`:
 | lufs | elem | 1 | 0.46 | 0.46 |
 | softclip | elem | 4 | 2.85 | 2.85* |
 | mix_add, gain_stereo | elem | 1, 0.5 | 0.50 | 0.50* |
-| osc, osc_pm, fmop (session 239: + its tables), openv, svf, zdf, eq (+ its ramp), dyn (comp, gate, limiter), bands (session 245: xover, disperse, udcomp), conv (session 248), fdn, waveshape, adsr (+ lfo, note_inc), delay, sampler, resample, sinc (+ its table), vsinc (+ its table), ramp, r128, scope | bits | - | = | * |
+| osc, osc_pm, fmop (session 239: + its tables), openv, svf, zdf, eq (+ its ramp), dyn (comp, gate, limiter), bands (session 245: xover, disperse, udcomp), conv (session 248), fdn, waveshape (session 263: + shape_mix), adsr (+ lfo, note_inc), delay, sampler, resample, sinc (+ its table), vsinc (+ its table), ramp, r128, scope | bits | - | = | * |
 | log2f, exp2f (session 225: dyn.c's own) | elem | 4 | 2.58, 2.80 | 2.58, 2.80 |
 | yin (session 224: two tones vs YIN in double) | elem | 4 | 0.40 | 0.40 |
 
@@ -566,6 +566,22 @@ a synth's voices' ZDFs side by side in lanes (four at a time, transposed
 in and out) -- no faster in ctui-daw's projects, where most synths have
 one or two voices sounding: the transposes and idle lanes cost what the
 overlap saves.
+
+### A saturator's settled block (session 263)
+
+ctui-daw's Saturator (5.6 % of dubstep) ran `udsp_shape1` a sample at a
+time: a call and the curve's switch each, nothing in lanes.
+`udsp_shape_mix` is its block with the knobs still: io = (x (1 - mix) +
+shape(x drive) mix) out, every curve's branches computed and the lanes
+picked (fold's turns, then `udsp_osc_sines`). The same bits as the
+expression over `udsp_shape1` (shape_test: every curve, the edges, -0,
+odd lengths; ulp.c's new `shape_mix` row = the scalar build's but where
+clang contracts, as every row). One thing that mattered: the soft curve
+written as one expression, as `udsp_shape1`'s -- with `x * x` a
+statement of its own, clang -v3 fused the scalar's into an FMA and not
+the vector's, and shape_test failed there. 2048 samples, soft: gcc-O2
+997 ns, -v3 470, clang-O2 1018, -v3 428. In ctui-daw the Saturator 56.5
+-> 22.4 ms.
 
 ### The disperser's remainder, a broadcast's -0 (session 263)
 

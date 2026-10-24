@@ -35,4 +35,10 @@ float udsp_shape1(UDSP_SHAPE kind, float x);
 /* buf[i] = shape(buf[i] * drive) */
 void udsp_waveshape(float *buf, size_t n, UDSP_SHAPE kind, float drive);
 
+/* a saturator's block with its knobs still: io[i] = (x * (1 - mix) +
+ * shape(x * drive) * mix) * out, x = io[i] -- the same bits as that
+ * expression over udsp_shape1(), a sample at a time */
+void udsp_shape_mix(float *io, size_t n, UDSP_SHAPE kind, float drive,
+                    float mix, float out);
+
 #endif

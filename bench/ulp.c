@@ -579,6 +579,18 @@ static double k_waveshape(const float *x, size_t n) {
   return 0.0;
 }
 
+/* a saturator's settled block: every curve, odd lengths (the tail) */
+static double k_shape_mix(const float *x, size_t n) {
+  for (int k = 0; k < UDSP_SHAPES; k++) {
+    for (size_t len = n; len + 13 >= n; len -= 13) {
+      memcpy(g_got, x, n * sizeof(float));
+      udsp_shape_mix(g_got, len, (UDSP_SHAPE)k, 3.7f, 0.6f, 0.9f);
+      hash_floats(g_got, len);
+    }
+  }
+  return 0.0;
+}
+
 static double k_mix_add(const float *x, size_t n) {
   for (size_t i = 0; i < n; i++) {
     g_got[i] = x[n - 1 - i];
@@ -1034,6 +1046,7 @@ static const KERNEL KERNELS[] = {
     {"bands", M_BITS, 0.0, k_bands, 2048},
     {"fdn", M_BITS, 0.0, k_fdn, 2048},
     {"waveshape", M_BITS, 0.0, k_waveshape, 2048},
+    {"shape_mix", M_BITS, 0.0, k_shape_mix, 2048},
     {"log2f", M_ELEM, 4.0, k_log2f, 2048},
     {"exp2f", M_ELEM, 4.0, k_exp2f, 2048},
     {"osc_pm", M_BITS, 0.0, k_osc_pm, 2048},
