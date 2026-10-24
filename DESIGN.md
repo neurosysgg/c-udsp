@@ -204,7 +204,8 @@ smooth.c    UDSP_SMOOTH: a parameter's glide to a target, a fixed length
 svf.c       UDSP_SVF: Chamberlin's state-variable filter, stereo
 delay.c     UDSP_DELAY: a stereo feedback delay over the caller's ring
 shape.c     udsp_softclip: x / (1 + |x|), with makeup; a saturator's
-            curves (soft, hard, fold, tube), no makeup
+            curves (soft, hard, fold, tube, root -- mda Overdrive's
+            sign(x) sqrt|x|), no makeup
 gain.c      + udsp_gain_stereo, udsp_mix_add, udsp_pan_gains
 eq.c        UDSP_EQ_BAND: a parametric EQ's band, stereo -- Simper's SVF
             with its outputs mixed into nine shapes (cuts at 12 and 48

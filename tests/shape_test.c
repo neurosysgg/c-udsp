@@ -39,9 +39,10 @@ static void test_shapes(void) {
   int small = 1;
   for (int k = 0; k < UDSP_SHAPES; k++) {
     float y = udsp_shape1((UDSP_SHAPE)k, 1e-3f);
-    small &= fabsf(y - 1e-3f) < 1e-5f;
+    small &= k == UDSP_SHAPE_ROOT || fabsf(y - 1e-3f) < 1e-5f;
   }
-  UDSP_TEST_ASSERT(small, "every curve passes a small signal as it is");
+  UDSP_TEST_ASSERT(small,
+                   "every curve but root passes a small signal as it is");
   UDSP_TEST_ASSERT(udsp_shape1(UDSP_SHAPE_SOFT, 3.0f) == 1.0f &&
                        udsp_shape1(UDSP_SHAPE_SOFT, 10.0f) == 1.0f &&
                        fabsf(udsp_shape1(UDSP_SHAPE_SOFT, 1.0f) - 0.7778f) <
@@ -59,6 +60,14 @@ static void test_shapes(void) {
       fabsf(udsp_shape1(UDSP_SHAPE_TUBE, 1.0f) - 0.5f) < 1e-6f &&
           fabsf(udsp_shape1(UDSP_SHAPE_TUBE, -1.0f) + 1.0f / 3.0f) < 1e-6f,
       "tube: the halves flatten unevenly (0.5 and -0.33 at 1)");
+  UDSP_TEST_ASSERT(udsp_shape1(UDSP_SHAPE_ROOT, 0.25f) == 0.5f &&
+                       udsp_shape1(UDSP_SHAPE_ROOT, -4.0f) == -2.0f &&
+                       udsp_shape1(UDSP_SHAPE_ROOT, 1.0f) == 1.0f,
+                   "root: sign(x) sqrt(|x|) (0.5 at 0.25, -2 at -4, 1 at 1)");
+  const float pz = udsp_shape1(UDSP_SHAPE_ROOT, 0.0f);
+  const float nz = udsp_shape1(UDSP_SHAPE_ROOT, -0.0f);
+  UDSP_TEST_ASSERT(pz == 0.0f && !signbit(pz) && signbit(nz),
+                   "root: +0 and -0 keep their signs");
 }
 
 /* udsp_shape_mix the bits of its expression a sample at a time, every

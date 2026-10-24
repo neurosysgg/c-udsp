@@ -3,6 +3,8 @@
 #include "base/simd.h"
 #include "synth/osc.h"
 
+#include <math.h>
+
 void udsp_softclip(float *buf, size_t n, float drive) {
   const float inv = 1.0f / (1.0f + drive * 0.25f);
   size_t i = 0;
@@ -34,6 +36,8 @@ float udsp_shape1(UDSP_SHAPE kind, float x) {
   }
   case UDSP_SHAPE_TUBE:
     return x >= 0.0f ? x / (1.0f + x) : x / (1.0f - 2.0f * x);
+  case UDSP_SHAPE_ROOT: /* mda's own expression: -0 stays -0, +0 +0 */
+    return x > 0.0f ? sqrtf(x) : -sqrtf(-x);
   default:
     if (x >= 3.0f || x <= -3.0f) {
       return x > 0.0f ? 1.0f : -1.0f;
@@ -58,6 +62,8 @@ static UDSP_VF vshape(UDSP_SHAPE kind, UDSP_VF x) {
     return udsp_vsel(x > one, one, udsp_vsel(x < neg, neg, x));
   case UDSP_SHAPE_TUBE:
     return udsp_vsel(x >= 0.0f, x / (1.0f + x), x / (1.0f - 2.0f * x));
+  case UDSP_SHAPE_ROOT: /* the lanes not picked a NaN, never seen */
+    return udsp_vsel(x > 0.0f, udsp_vsqrt(x), -udsp_vsqrt(-x));
   default: {
     /* one expression, as udsp_shape1()'s: a compiler that contracts
      * (clang) fuses the same multiplies and adds in both */

@@ -11,8 +11,8 @@
  * / 4) makeup keeps it from being a volume knob too. drive >= 1. */
 void udsp_softclip(float *buf, size_t n, float drive);
 
-/* A saturator's curves, each passing a small signal as it is (slope 1
- * at 0) and none a volume knob of its own (no makeup: the caller's
+/* A saturator's curves, each but root passing a small signal as it is
+ * (slope 1 at 0) and none a volume knob of its own (no makeup: the caller's
  * output gain is):
  * - soft: tanh's shape, a rational (x (27 + x^2) / (27 + 9 x^2), Padé's)
  *   reaching +-1 at |x| = 3 and staying there;
@@ -21,12 +21,17 @@ void udsp_softclip(float *buf, size_t n, float drive);
  *   folder's bright overtones);
  * - tube: asymmetric, x / (1 + x) above 0 and x / (1 - 2 x) under: the
  *   halves flatten unevenly (even harmonics, and a DC offset the caller
- *   filters out). */
+ *   filters out);
+ * - root: sign(x) sqrt(|x|), mda Overdrive's (Paul Kellett's): the
+ *   exception to slope 1 -- a small signal comes out louder (1e-2 as
+ *   1e-1), a large one quieter, no ceiling; mda blends it with the dry
+ *   signal by its drive, a saturator's mix at a drive of 1. */
 typedef enum {
   UDSP_SHAPE_SOFT,
   UDSP_SHAPE_HARD,
   UDSP_SHAPE_FOLD,
   UDSP_SHAPE_TUBE,
+  UDSP_SHAPE_ROOT,
   UDSP_SHAPES,
 } UDSP_SHAPE;
 
