@@ -80,6 +80,9 @@ void udsp_eq_set(UDSP_EQ_BAND *b, UDSP_EQ_SHAPE shape, float hz, float q,
   case UDSP_EQ_NOTCH:
     stage(&b->st[0], g, k, 1.0f, -k, 0.0f);
     break;
+  case UDSP_EQ_BAND_PASS:
+    stage(&b->st[0], g, k, 0.0f, k, 0.0f);
+    break;
   default: {
     /* the bell: its bandwidth kept as the gain changes (Q / A) */
     const float kb = 1.0f / (q * a);

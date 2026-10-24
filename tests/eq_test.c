@@ -82,6 +82,12 @@ static void test_shapes(void) {
         "high cut 48: an octave over, -48");
   check(UDSP_EQ_LOW_CUT_12, 1000.0f, 4.0f, 0.0f, 1000.0f, 12.04f, 0.05f,
         "low cut 12 at Q 4: +12 at its corner");
+  check(UDSP_EQ_BAND_PASS, 1000.0f, 1.0f, 0.0f, 1000.0f, 0.0f, 0.02f,
+        "band pass: 0 dB at its centre");
+  check(UDSP_EQ_BAND_PASS, 1000.0f, 1.0f, 0.0f, 2000.0f, -5.12f, 0.1f,
+        "band pass at Q 1: an octave over, -5.1 (1 / sqrt(1 + 1.5^2))");
+  check(UDSP_EQ_BAND_PASS, 1000.0f, 1.0f, 6.0f, 62.5f, -24.07f, 0.1f,
+        "band pass: four octaves under, -24.07; the gain ignored");
   int same;
   UDSP_TEST_ASSERT(gain_at(UDSP_EQ_NOTCH, 1000.0f, 2.0f, 0.0f, 1000.0f, &same) <
                        1e-3f,

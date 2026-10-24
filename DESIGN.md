@@ -207,8 +207,8 @@ shape.c     udsp_softclip: x / (1 + |x|), with makeup; a saturator's
             curves (soft, hard, fold, tube), no makeup
 gain.c      + udsp_gain_stereo, udsp_mix_add, udsp_pan_gains
 eq.c        UDSP_EQ_BAND: a parametric EQ's band, stereo -- Simper's SVF
-            with its outputs mixed into eight shapes (cuts at 12 and 48
-            dB an octave, shelves, a bell, a notch), its curve for a
+            with its outputs mixed into nine shapes (cuts at 12 and 48
+            dB an octave, shelves, a bell, a notch, a band pass), its curve for a
             screen, and a ramp: g, k and the mix moving a frame at a
             time so a glide neither zippers nor leaves the stable region
 dyn.c       a float log2 / exp2 of its own (no libm); UDSP_COMP (a soft

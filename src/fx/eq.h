@@ -10,9 +10,11 @@
  * makes. The cuts come at 12 dB an octave (one section, its Q the
  * band's) and 48 (four sections: an 8th-order Butterworth whose last,
  * sharpest section takes the band's Q as a resonance), Ableton's EQ
- * Eight's eight shapes. tan() is the oscillator's sine over its cosine
- * and the dB the pitch module's udsp_exp2: no libm (sqrt aside, which
- * IEEE rounds the same everywhere), the same bits on every build. */
+ * Eight's eight shapes, and a band pass (FL's Parametric EQ 2 has one;
+ * appended, the others' numbers kept). tan() is the oscillator's sine
+ * over its cosine and the dB the pitch module's udsp_exp2: no libm (sqrt
+ * aside, which IEEE rounds the same everywhere), the same bits on every
+ * build. */
 
 typedef enum {
   UDSP_EQ_LOW_CUT_48,
@@ -23,6 +25,7 @@ typedef enum {
   UDSP_EQ_HIGH_SHELF,
   UDSP_EQ_HIGH_CUT_12,
   UDSP_EQ_HIGH_CUT_48,
+  UDSP_EQ_BAND_PASS, /* 12 dB an octave each side, 0 dB at its centre */
   UDSP_EQ_SHAPES,
 } UDSP_EQ_SHAPE;
 
