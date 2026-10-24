@@ -648,6 +648,36 @@ static double k_eq(const float *x, size_t n) {
   return 0.0;
 }
 
+/* chains of 1-8 bands, 48 dB cuts leading the longer ones (1, 2, 3, 7,
+ * 8, 15, 19 and 26 sections: every wavefront width and lag, and a chain
+ * split in two), the signal as stereo in uneven calls */
+static double k_eq_chain(const float *x, size_t n) {
+  static const size_t CALLS[] = {1, 7, 32, 100, 256, 3};
+  for (int nb = 1; nb <= 8; nb++) {
+    UDSP_EQ_BAND b[8];
+    UDSP_EQ_BAND *p[8];
+    for (int i = 0; i < nb; i++) {
+      udsp_eq_reset(&b[i]);
+      const int shape = i < 2 * (nb - 5)
+                            ? (i % 2 ? UDSP_EQ_HIGH_CUT_48 : UDSP_EQ_LOW_CUT_48)
+                            : (i * 3 + nb) % UDSP_EQ_SHAPES;
+      udsp_eq_set(&b[i], (UDSP_EQ_SHAPE)shape,
+                  80.0f * (float)(i + 1) * (float)(i + 1),
+                  0.5f + 0.3f * (float)i, 6.0f - 2.0f * (float)i, 48000);
+      p[i] = &b[i];
+    }
+    memcpy(g_got, x, n * sizeof(float));
+    for (size_t at = 0, c = 0; at < n / 2; c++) {
+      size_t k = CALLS[c % (sizeof CALLS / sizeof CALLS[0])];
+      k = k < n / 2 - at ? k : n / 2 - at;
+      udsp_eq_chain(p, nb, g_got + 2 * at, k);
+      at += k;
+    }
+    hash_floats(g_got, n);
+  }
+  return 0.0;
+}
+
 /* the signal as stereo through a 3-band crossover, retuned halfway;
  * through 40 and a half stages of dispersion; keying an up / down
  * compressor (peak, RMS): bits only */
@@ -999,6 +1029,7 @@ static const KERNEL KERNELS[] = {
     {"svf", M_BITS, 0.0, k_svf, 2048},
     {"zdf", M_BITS, 0.0, k_zdf, 2048},
     {"eq", M_BITS, 0.0, k_eq, 2048},
+    {"eq_chain", M_BITS, 0.0, k_eq_chain, 2048},
     {"dyn", M_BITS, 0.0, k_dyn, 2048},
     {"bands", M_BITS, 0.0, k_bands, 2048},
     {"fdn", M_BITS, 0.0, k_fdn, 2048},

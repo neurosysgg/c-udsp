@@ -1,0 +1,6 @@
+gcc-O2	eq_bands	1024	26163.6	25979.6
+gcc-O2	eq_chain	1024	6532.7	6475.8
+gcc-O2-v3	eq_bands	1024	26095.4	25939.5
+gcc-O2-v3	eq_chain	1024	4046.7	4026.7
+clang-O2	eq_bands	1024	24362.7	24206.3
+clang-O2	eq_chain	1024	7842.3	7762.3

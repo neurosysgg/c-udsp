@@ -567,6 +567,58 @@ in and out) -- no faster in ctui-daw's projects, where most synths have
 one or two voices sounding: the transposes and idle lanes cost what the
 overlap saves.
 
+### The EQ's wavefront: two lanes a section, two steps a hand-off (session 262)
+
+ctui-daw's EQ Eight (its s7 list: 17 % of dubstep's render, 52
+instances; 91 % of their instructions in the wavefront). The same bits
+(ulp.c's whole table, its new `eq_chain` case among it -- 1, 2, 3, 7,
+8, 15, 19 and 26 sections in uneven calls -- identical to before's in
+every build, raw hashes compared; eq_test's chain against band by
+band; ctui-daw's render hashes in gcc, -v3 and clang). ns per call
+(`results/s262-before.tsv`, `s262-after.tsv`; seven sections, 1024
+frames in one call):
+
+| kernel | gcc-O2 | gcc-O2-v3 | clang-O2 | what |
+|---|---|---|---|---|
+| eq_chain | 8188 -> 6533 (1.25x) | 6657 -> 4047 (1.64x) | 8707 -> 7842 (1.11x) | lanes 2j, 2j + 1 a section's left and right (the hand-off one shuffle a vector, the frame in and out 8 bytes); a section two frames behind the one before it where the registers allow; the head, middle and tail as separate loops; the lanes set up as floats, then a load a vector |
+
+Before, a step waited on the one before it: a section's output is six
+operations after its input (~18 cycles) plus the shift to the next lane,
+and each step's input was the last step's output. With section j at
+frame n - 2j (L = 2), the hand-off has two steps, and what's left is a
+section's own recurrence (~15 cycles). L = 2 keeps two steps' outputs
+besides the state, 4 G vectors live against 3 G at L = 1 (G the
+vectors: two sections each on SSE, four on AVX), so on SSE's 16
+registers it spills past three; there L = 1, which is EQ Eight's usual
+seven sections (G = 4) on SSE. AVX keeps L = 2 and at G = 4 puts the
+outputs through memory on purpose (their address hidden from the
+compiler with an empty asm: a store forwards to its load within the two
+steps, and the state keeps the registers): 13-16 sections 8.2 -> 6.5 us
+gcc, 9.9 -> 6.8 clang; on SSE the same measured no faster for gcc.
+
+A scratch sweep (1-16 sections, calls of 1024, 256 and 32 frames; each
+binary alone on the pinned core, best of two alternated): faster at
+every count and length but 13-16 sections in calls of 32 (L = 2's head
+and tail are twice as long: +2-6 % gcc SSE, +19-21 % gcc -v3, +2-6 %
+clang -v3; a rare mix -- four 48 dB cuts while gliding). Seven
+sections, us per 1024 frames old -> new:
+
+| calls of | gcc-O2 | gcc-O2-v3 | clang-O2 | clang-O2-v3 |
+|---|---|---|---|---|
+| 1024 | 8.06 -> 6.44 | 6.58 -> 4.00 | 8.63 -> 7.74 | 7.13 -> 4.33 |
+| 256 | 8.53 -> 6.89 | 6.84 -> 4.39 | 9.78 -> 8.14 | 7.49 -> 4.70 |
+| 32 | 12.21 -> 10.74 | 9.19 -> 8.01 | 20.67 -> 12.26 | 10.86 -> 8.24 |
+
+Two things clang needed: the outputs' buffer picked by n % L at run time
+in the head's and tail's odd steps kept the buffers in memory (now each
+step's index is a constant: L is 1 or 2); and lanes stored one at a time
+into a vector in memory and then loaded whole don't forward -- clang
+kept the setup's vectors there and stalled on each, ~0.3 us a call from
+two vectors up (the old kernel too: 12.1 vs gcc's 6.0 us at one section
+in calls of 32). Writing `2.0f * v` as a multiply by an opaque 2 (to
+move two adds a section to the idle multiply pipes: gcc makes it `v +
+v`) measured no different: the loop isn't port-bound.
+
 ### The varispeed sinc's weights (session 261)
 
 ctui-daw's audio clips (its s7 list: 93 % of "op audio" in
