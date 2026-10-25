@@ -180,7 +180,7 @@ pitch.c     exact equal temperament: a Q20 semitone table, octaves as
             fractional note's increment for a synth's pitch (no libm)
 osc.c       UDSP_OSC: a 32-bit phase accumulator and five waves; the
             same phase-modulated (2-operator FM)
-lfo.c       UDSP_LFO: six shapes read at control rate, a sample and hold
+lfo.c       UDSP_LFO: seven shapes read at control rate, a sample and hold
 adsr.c      UDSP_ADSR: a linear attack, exponential decay and release
 openv.c     UDSP_OPENV: Operator's envelope -- initial, peak, sustain and
             end levels, each segment its time and a slope (an exponential

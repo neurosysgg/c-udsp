@@ -19,6 +19,10 @@ void udsp_lfo_init(UDSP_LFO *l, UDSP_LFO_SHAPE shape, uint32_t seed) {
   l->inc = 0;
   l->rng = seed ? seed : 0x9e3779b9u;
   l->held = next_random(l);
+  l->from = l->held;
+  if (shape == UDSP_LFO_SMOOTH) {
+    l->held = next_random(l);
+  }
 }
 
 float udsp_lfo_value(const UDSP_LFO *l) {
@@ -35,6 +39,8 @@ float udsp_lfo_value(const UDSP_LFO *l) {
     return l->phase < 0x80000000u ? 1.0f : -1.0f;
   case UDSP_LFO_RANDOM:
     return l->held;
+  case UDSP_LFO_SMOOTH:
+    return l->from + (l->held - l->from) * (t * t * (3.0f - 2.0f * t));
   default:
     return udsp_osc_sine(t);
   }
@@ -43,12 +49,14 @@ float udsp_lfo_value(const UDSP_LFO *l) {
 void udsp_lfo_advance(UDSP_LFO *l, uint32_t frames) {
   uint64_t to = (uint64_t)l->phase + (uint64_t)frames * l->inc;
   if (to >> 32) {
+    l->from = l->held;
     l->held = next_random(l);
   }
   l->phase = (uint32_t)to;
 }
 
 void udsp_lfo_reset(UDSP_LFO *l, uint32_t phase) {
+  l->from = udsp_lfo_value(l);
   l->phase = phase;
   l->held = next_random(l);
 }
