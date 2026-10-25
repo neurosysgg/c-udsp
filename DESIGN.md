@@ -252,6 +252,8 @@ fdn.c       UDSP_FDN: a reverb -- eight lines through a Hadamard matrix,
             a low-pass or two high shelves (dB a second), early taps
             crossfaded in and fed to the lines, a tail gain (Kilohearts'
             Reverb's, measured)
+hilbert.c   UDSP_HILBERT: an analytic signal, Niemitalo's two allpass
+            chains (a frequency shifter's, a barberpole flanger's)
 conv.c      UDSP_CONV_IN: uniformly partitioned convolution (overlap-save)
             -- a response's partitions' spectra, an input's delay line of
             spectra, a multiply-add of the two into an accumulator per
