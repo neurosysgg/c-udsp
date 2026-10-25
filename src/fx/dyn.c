@@ -149,6 +149,22 @@ static void key_sq(const float *key, float *x, size_t frames) {
   }
 }
 
+/* the mean square of the two channels a frame into x */
+static void key_mean_sq(const float *key, float *x, size_t frames) {
+  size_t i = 0;
+#if UDSP_W > 1
+  for (; i + UDSP_W <= frames; i += UDSP_W) {
+    UDSP_VF l, r;
+    udsp_vlr(key + 2 * i, &l, &r);
+    udsp_vstore(x + i, 0.5f * (l * l + r * r));
+  }
+#endif
+  for (; i < frames; i++) {
+    const float l = key[2 * i], r = key[2 * i + 1];
+    x[i] = 0.5f * (l * l + r * r);
+  }
+}
+
 #define PEAK_FLOOR 1e-15f /* -300 dB */
 #define MS_FLOOR 1e-30f
 
@@ -298,6 +314,7 @@ float udsp_comp_curve(const UDSP_COMP *c, float in_db) {
 void udsp_udcomp_reset(UDSP_UDCOMP *c) {
   c->db = 0.0f;
   c->ms = 0.0f;
+  c->lvl = -300.0f;
 }
 
 static float slope_of(float ratio) {
@@ -396,8 +413,9 @@ static void ud_want(const UDSP_UDCOMP *c, float *x, size_t frames) {
   }
 }
 
-/* comp's passes, the recurrences side by side: RMS's for those
- * detecting it (key_db()'s), then the smoother's */
+/* comp's passes, the recurrences side by side: RMS's (the louder
+ * channel's, or the power's mean) for those detecting it (key_db()'s),
+ * then the smoother's */
 void udsp_udcomp_gains(UDSP_UDCOMP *const c[], const float *const key[],
                        float *const gain[], size_t n, size_t frames) {
   n = n > UDSP_UDCOMP_N ? UDSP_UDCOMP_N : n;
@@ -412,31 +430,68 @@ void udsp_udcomp_gains(UDSP_UDCOMP *const c[], const float *const key[],
       continue;
     }
     float *x = gain[j];
-    key_sq(key[j], x, frames);
     rows[m] = x;
     ms[m] = c[j]->ms;
+    if (c[j]->rms == UDSP_UDCOMP_POWER) {
+      key_mean_sq(key[j], x, frames);
+    } else {
+      key_sq(key[j], x, frames);
+    }
     att[m] = rel[m] = c[j]->ms_coef;
     m++;
   }
   follow(rows, ms, att, rel, m, frames);
   m = 0;
+  size_t np = 0;
+  float *prow[UDSP_UDCOMP_N] = {0};
+  float pl[UDSP_UDCOMP_N] = {0}, pa[UDSP_UDCOMP_N] = {0},
+        pr[UDSP_UDCOMP_N] = {0};
   for (size_t j = 0; j < n; j++) {
     float *x = gain[j];
     if (c[j]->rms) {
       c[j]->ms = ms[m++];
       log2_scaled(x, frames, MS_FLOOR, 0.5f * UDSP_DB_PER_LOG2);
     }
-    ud_want(c[j], x, frames);
+    if (c[j]->rms == UDSP_UDCOMP_POWER) {
+      /* the level smoothed: follow's att while it falls, the release */
+      prow[np] = x;
+      pl[np] = c[j]->lvl;
+      pa[np] = c[j]->rel;
+      pr[np] = c[j]->att;
+      np++;
+    }
+  }
+  follow(prow, pl, pa, pr, np, frames);
+  np = 0;
+  for (size_t j = 0; j < n; j++) {
+    float *x = gain[j];
+    const int power = c[j]->rms == UDSP_UDCOMP_POWER;
+    if (power) {
+      c[j]->lvl = pl[np++];
+      /* the level held at the floor, the curve then as it is */
+      UDSP_UDCOMP held = *c[j];
+      held.floor = -INFINITY;
+      for (size_t i = 0; i < frames; i++) {
+        x[i] = x[i] < c[j]->floor ? c[j]->floor : x[i];
+      }
+      ud_want(&held, x, frames);
+    } else {
+      ud_want(c[j], x, frames);
+    }
     rows[j] = x;
     s[j] = c[j]->db;
-    att[j] = c[j]->att;
-    rel[j] = c[j]->rel;
+    att[j] = power ? 0.0f : c[j]->att; /* a pole of 0: the gain as it is */
+    rel[j] = power ? 0.0f : c[j]->rel;
   }
   follow(rows, s, att, rel, n, frames);
   for (size_t j = 0; j < n; j++) {
     c[j]->db = s[j];
     gains_from_db(gain[j], frames, -INFINITY); /* finite: never */
   }
+}
+
+void udsp_udcomp_set_window(UDSP_UDCOMP *c, float ms, unsigned rate) {
+  c->ms_coef = pole(ms, rate);
 }
 
 void udsp_udcomp_gain(UDSP_UDCOMP *c, const float *key, float *gain,

@@ -219,7 +219,10 @@ dyn.c       a float log2 / exp2 of its own (no libm); UDSP_COMP (a soft
             Multiband Dynamics (down above one threshold, up below another,
             the boost capped, none under a floor; by slopes either side
             of 1 -- expansion too, its cut held at -120 dB -- and a soft
-            knee round each threshold: Kilohearts' Dynamics) -- and UDSP_LIMITER, a
+            knee round each threshold: Kilohearts' Dynamics; a power
+            detector of its, measured: the channels' mean square over a
+            window of its own, the level smoothed in dB, the floor
+            holding it) -- and UDSP_LIMITER, a
             brickwall over a lookahead (the needed gain held at its
             window's minimum, released, averaged over the window: no
             sample past the ceiling)

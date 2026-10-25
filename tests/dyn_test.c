@@ -231,6 +231,69 @@ static void test_udcomp(void) {
                    (double)boost);
 }
 
+/* the power detector (Kilohearts' Dynamics'): the two channels' mean
+ * square -- one alone reads 3 dB down --, over its window (2 ms here: a
+ * tau in, 1 - 1/e of the step's mean square), then the level smoothed
+ * (attack 0: at once), the curve's gain as it comes; its floor holding
+ * the level, an expansion's cut coming in as the level falls */
+static void test_udcomp_power(void) {
+  UDSP_UDCOMP c;
+  udsp_udcomp_set(&c, -20.0f, 4.0f, -80.0f, 1.0f, 0.0f, -100.0f, 1e-6f, 50.0f,
+                  UDSP_UDCOMP_POWER, RATE);
+  udsp_udcomp_set_window(&c, 2.0f, RATE);
+  static float key[2 * RATE], gain[RATE];
+  const float a = powf(10.0f, -10.0f / 20.0f);
+  for (int one = 0; one < 2; one++) {
+    for (int i = 0; i < RATE; i++) {
+      key[2 * i] = a;
+      key[2 * i + 1] = one ? 0.0f : a;
+    }
+    udsp_udcomp_reset(&c);
+    udsp_udcomp_gain(&c, key, gain, RATE);
+    const float g = 20.0f * log10f(gain[RATE - 1]);
+    const float want = one ? -0.75f * (10.0f - 3.0103f) : -7.5f;
+    UDSP_TEST_ASSERT(
+        fabsf(g - want) < 0.01f, "%s at -10 dB, 4:1 over -20: %.3f dB (%.3f)",
+        one ? "the left alone" : "both channels", (double)g, (double)want);
+  }
+  udsp_udcomp_reset(&c);
+  for (int i = 0; i < 2 * 96; i++) {
+    key[i] = a;
+  }
+  udsp_udcomp_gain(&c, key, gain, 96);
+  const float at = 20.0f * log10f(gain[95]);
+  const float at_want = -0.75f * (10.0f + 10.0f * log10f(1.0f - expf(-1.0f)));
+  UDSP_TEST_ASSERT(fabsf(at - at_want) < 0.05f,
+                   "its window's tau in: %.3f dB (%.3f)", (double)at,
+                   (double)at_want);
+  /* the floor holds: 1:2 upward under -40, a floor at -60 -- a key at
+   * -80 lifted as one at -60 is, +10 dB (not none) */
+  udsp_udcomp_set_slopes(&c, 0.0f, 1.0f, -40.0f, 0.5f, 0.0f, 120.0f, -60.0f,
+                         1e-6f, 1e-6f, UDSP_UDCOMP_POWER, RATE);
+  udsp_udcomp_set_window(&c, 1.0f, RATE);
+  const float held = ud_settled(&c, -80.0f);
+  /* an expansion (slope 3 under -30) after a drop from -10 to -50: the
+   * level falls at the release's pace (20 ms), so 1 ms on nothing's cut
+   * yet; settled, 2 x 20 dB */
+  udsp_udcomp_set_slopes(&c, 0.0f, 1.0f, -30.0f, 3.0f, 0.0f, 120.0f, -100.0f,
+                         1e-3f, 20.0f, UDSP_UDCOMP_POWER, RATE);
+  udsp_udcomp_set_window(&c, 0.1f, RATE);
+  const float hi = powf(10.0f, -10.0f / 20.0f),
+              lo = powf(10.0f, -50.0f / 20.0f);
+  for (int i = 0; i < RATE; i++) {
+    key[2 * i] = key[2 * i + 1] = i < RATE / 2 ? hi : lo;
+  }
+  udsp_udcomp_reset(&c);
+  udsp_udcomp_gain(&c, key, gain, RATE);
+  const float soon = 20.0f * log10f(gain[RATE / 2 + 48]);
+  const float late = 20.0f * log10f(gain[RATE - 1]);
+  UDSP_TEST_ASSERT(fabsf(held - 10.0f) < 0.05f && fabsf(soon) < 0.05f &&
+                       fabsf(late + 40.0f) < 0.1f,
+                   "held at the floor: %+.2f dB; an expansion 1 ms after the "
+                   "drop %.2f, settled %.2f",
+                   (double)held, (double)soon, (double)late);
+}
+
 /* by slopes: compressing above, expanding below, the expansion's depth
  * held, a knee across both, the curve smooth through each */
 static void test_udcomp_slopes(void) {
@@ -303,7 +366,7 @@ static void test_udcomp_gains(void) {
   for (int j = 0; j < N; j++) {
     udsp_udcomp_reset(&one[j]);
     udsp_udcomp_set(&one[j], -20.0f + 4.0f * j, 4.0f + j, -40.0f, 3.0f, 12.0f,
-                    -80.0f, 1.0f + 7.0f * j, 30.0f + 40.0f * j, j > 0, RATE);
+                    -80.0f, 1.0f + 7.0f * j, 30.0f + 40.0f * j, j, RATE);
     side[j] = one[j];
   }
   static float key[N][2 * B], a[N][B], b[N][B];
@@ -328,7 +391,8 @@ static void test_udcomp_gains(void) {
       same &= !memcmp(&one[j], &side[j], sizeof(one[j]));
     }
   }
-  UDSP_TEST_ASSERT(same, "three side by side: the bits of one at a time");
+  UDSP_TEST_ASSERT(same, "three side by side (peak, RMS, power): the bits "
+                         "of one at a time");
 }
 
 int main(void) {
@@ -338,6 +402,7 @@ int main(void) {
   test_gate();
   test_limiter();
   test_udcomp();
+  test_udcomp_power();
   test_udcomp_slopes();
   test_udcomp_gains();
   return udsp_test_summary();

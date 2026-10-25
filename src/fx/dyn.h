@@ -71,7 +71,21 @@ float udsp_comp_curve(const UDSP_COMP *c, float in_db);
  * stops at `up_max` dB, a key under `floor` dB (silence, a tail's last
  * bit) gets none from below -- upward compression would otherwise lift
  * the noise floor without end --, and an expansion's cut stops at
- * UDSP_UDCOMP_DEPTH dB. */
+ * UDSP_UDCOMP_DEPTH dB.
+ *
+ * Its detector (`rms`): 0 the peak (the louder channel's), 1 the RMS
+ * over 10 ms (the louder channel's square) -- each then the gain smoothed
+ * as above -- or UDSP_UDCOMP_POWER, Kilohearts' Dynamics' (measured): the
+ * two channels' mean square over a window of its own
+ * (udsp_udcomp_set_window; 10 ms until set; a channel alone reads 3 dB
+ * down), then the level smoothed in dB -- attack while it rises, release
+ * while it falls -- and the curve's gain taken as it comes. The same as
+ * smoothing the gain where the curve compresses; an expansion's cut
+ * comes in at the release's pace, as the level falls. Its floor holds
+ * the level (a boost from below stays what it is there) rather than
+ * ending the boost. */
+
+#define UDSP_UDCOMP_POWER 2
 
 #define UDSP_UDCOMP_DEPTH 120.0f
 
@@ -83,6 +97,7 @@ typedef struct {
   int rms;
   float db; /* the smoothed gain, dB */
   float ms;
+  float lvl;            /* the power detector's smoothed level, dB */
   float knee, knee_inv; /* dB; 1 / (2 knee), 0 without one */
 } UDSP_UDCOMP;
 
@@ -103,6 +118,10 @@ void udsp_udcomp_set_slopes(UDSP_UDCOMP *c, float above_db, float above_slope,
                             float below_db, float below_slope, float knee_db,
                             float up_max_db, float floor_db, float attack_ms,
                             float release_ms, int rms, unsigned rate);
+
+/* the power detector's window (ms > 0), after a set (which puts it back
+ * at 10 ms) */
+void udsp_udcomp_set_window(UDSP_UDCOMP *c, float ms, unsigned rate);
 
 /* the gain (linear) for each of frames frames of key into gain */
 void udsp_udcomp_gain(UDSP_UDCOMP *c, const float *key, float *gain,
