@@ -29,12 +29,18 @@ static float amp(const float *x) {
 
 static float db(float g) { return 20.0f * log10f(g); }
 
+static int lr2; /* split() at 12 dB */
+
 /* hz through a crossover of bands at splits: each band's level in
  * dB[b], the bands' sum's */
 static float split(int bands, const float *splits, float hz, float *dbs) {
   UDSP_XOVER x;
   udsp_xover_reset(&x);
-  udsp_xover_set(&x, bands, splits, RATE);
+  if (lr2) {
+    udsp_xover_set_lr2(&x, bands, splits, RATE);
+  } else {
+    udsp_xover_set(&x, bands, splits, RATE);
+  }
   sine(hz);
   float *out[5] = {band[0], band[1], band[2], band[3], band[4]};
   udsp_xover_split(&x, in, out, N);
@@ -198,11 +204,80 @@ static void test_three_as_reference(void) {
 #endif
 }
 
+/* 12 dB (LFOTool's split): Linkwitz-Riley's second order -- each side
+ * 1 / (1 + w^2) in amplitude, -6 dB at the split; 2 .. 5 bands summed flat
+ * (the high side inverted, the lower bands through the allpasses); the
+ * same bits whatever the calls' lengths */
+static void test_lr2(void) {
+  lr2 = 1;
+  static const float S[] = {500.0f};
+  float dbs[5];
+  const float side = -20.0f * log10f(1.25f); /* w = 2 or 1/2 */
+  split(2, S, 250.0f, dbs);
+  UDSP_TEST_ASSERT(fabsf(dbs[0] - side) < 0.01f &&
+                       fabsf(dbs[1] - (side - 12.04f)) < 0.05f,
+                   "an octave under: the low side %.3f dB (LR2's %.3f), the "
+                   "high %.2f",
+                   (double)dbs[0], (double)side, (double)dbs[1]);
+  split(2, S, 1000.0f, dbs);
+  UDSP_TEST_ASSERT(fabsf(dbs[1] - side) < 0.01f &&
+                       fabsf(dbs[0] - (side - 12.04f)) < 0.05f,
+                   "an octave over: the high side %.3f dB, the low %.2f",
+                   (double)dbs[1], (double)dbs[0]);
+  split(2, S, 500.0f, dbs);
+  UDSP_TEST_ASSERT(
+      fabsf(dbs[0] + 6.02f) < 0.02f && fabsf(dbs[1] + 6.02f) < 0.02f,
+      "at the split: both -6 dB (%.2f, %.2f)", (double)dbs[0], (double)dbs[1]);
+  static const float SPLITS[] = {120.0f, 2500.0f, 6000.0f, 12000.0f};
+  static const float HZ[] = {30, 120, 400, 2500, 4000, 6000, 9000, 15000};
+  float worst = 0.0f;
+  for (int bands = 2; bands <= 5; bands++) {
+    for (size_t i = 0; i < sizeof HZ / sizeof *HZ; i++) {
+      const float sum = split(bands, SPLITS, HZ[i], dbs);
+      worst = fabsf(sum) > worst ? fabsf(sum) : worst;
+    }
+  }
+  UDSP_TEST_ASSERT(worst < 0.01f,
+                   "2 .. 5 bands summed: flat within %.4f dB (< 0.01)",
+                   (double)worst);
+  lr2 = 0;
+  static float whole[3][2 * 600], part[3][2 * 600];
+  uint32_t seed = 11;
+  for (int i = 0; i < 2 * 600; i++) {
+    seed = seed * 1664525u + 1013904223u;
+    in[i] = (float)(seed >> 8) / 16777216.0f - 0.5f;
+  }
+  static const float S3[] = {200.0f, 3000.0f};
+  UDSP_XOVER a, b;
+  udsp_xover_reset(&a);
+  udsp_xover_reset(&b);
+  udsp_xover_set_lr2(&a, 3, S3, RATE);
+  udsp_xover_set_lr2(&b, 3, S3, RATE);
+  float *w[3] = {whole[0], whole[1], whole[2]};
+  udsp_xover_split(&a, in, w, 600);
+  static const size_t LENS[] = {1, 2, 3, 7, 64, 256, 267};
+  size_t at = 0;
+  for (size_t r = 0; r < sizeof LENS / sizeof *LENS; r++) {
+    float *q[3] = {part[0] + 2 * at, part[1] + 2 * at, part[2] + 2 * at};
+    udsp_xover_split(&b, in + 2 * at, q, LENS[r]);
+    at += LENS[r];
+  }
+  int same = at == 600;
+  for (int k = 0; k < 3; k++) {
+    for (int i = 0; i < 2 * 600; i++) {
+      same &= whole[k][i] == part[k][i];
+    }
+  }
+  UDSP_TEST_ASSERT(same, "three bands at 12 dB: the same values in calls of "
+                         "1 .. 267");
+}
+
 int main(void) {
   test_three_as_reference();
   printf("xover_test\n");
   test_flat();
   test_bands();
   test_one_and_alias();
+  test_lr2();
   return udsp_test_summary();
 }

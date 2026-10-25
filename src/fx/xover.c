@@ -6,15 +6,19 @@
 #include "synth/osc.h"
 
 #define BUTTER_K 1.41421356f /* 1 / Q, Q = 1 / sqrt(2) */
+#define LR2_K 2.0f           /* Q = 1 / 2: two first-order poles */
 
 void udsp_xover_reset(UDSP_XOVER *x) {
   memset(x->sec, 0, sizeof x->sec);
   memset(x->ap, 0, sizeof x->ap);
 }
 
-void udsp_xover_set(UDSP_XOVER *x, int bands, const float *hz, unsigned rate) {
+static void set(UDSP_XOVER *x, int bands, const float *hz, unsigned rate,
+                int lr2) {
+  const float k = lr2 ? LR2_K : BUTTER_K;
   bands = bands < 1 ? 1 : (bands > UDSP_XOVER_BANDS ? UDSP_XOVER_BANDS : bands);
   x->bands = bands;
+  x->lr2 = lr2;
   const float lo = 10.0f / (float)rate;
   for (int s = 0; s < bands - 1; s++) {
     float t = hz[s] / (float)rate;
@@ -22,11 +26,20 @@ void udsp_xover_set(UDSP_XOVER *x, int bands, const float *hz, unsigned rate) {
     /* tan(pi t): eq.c's */
     const float g = udsp_osc_sine(0.5f * t) / udsp_osc_sine(0.5f * t + 0.25f);
     UDSP_XOVER_SPLIT *c = &x->c[s];
-    c->k = BUTTER_K;
-    c->a1 = 1.0f / (1.0f + g * (g + BUTTER_K));
+    c->k = k;
+    c->a1 = 1.0f / (1.0f + g * (g + k));
     c->a2 = g * c->a1;
     c->a3 = g * c->a2;
   }
+}
+
+void udsp_xover_set(UDSP_XOVER *x, int bands, const float *hz, unsigned rate) {
+  set(x, bands, hz, rate, 0);
+}
+
+void udsp_xover_set_lr2(UDSP_XOVER *x, int bands, const float *hz,
+                        unsigned rate) {
+  set(x, bands, hz, rate, 1);
 }
 
 /* one trapezoidal SVF tick: v1 the band, v2 the low output */
@@ -58,6 +71,40 @@ UDSP_NO_SLP static void split(const UDSP_XOVER_SPLIT *c, float (*sec)[2][2],
     }
   }
   memcpy(sec, s, sizeof s);
+}
+
+/* split() at 12 dB: one section, its low pass low, its high pass
+ * inverted kept */
+UDSP_NO_SLP static void split_lr2(const UDSP_XOVER_SPLIT *c, float (*sec)[2],
+                                  float *rest, float *low, size_t frames) {
+  float s[2][2];
+  memcpy(s, sec, sizeof s);
+  for (size_t i = 0; i < frames; i++) {
+    for (int ch = 0; ch < 2; ch++) {
+      const float in = rest[2 * i + ch];
+      float v1, v2;
+      tick(c, in, s[ch], &v1, &v2);
+      low[2 * i + ch] = v2;
+      rest[2 * i + ch] = c->k * v1 + v2 - in;
+    }
+  }
+  memcpy(sec, s, sizeof s);
+}
+
+/* allpass() at 12 dB: low minus high, 2 band + 2 low - x */
+UDSP_NO_SLP static void allpass_lr2(const UDSP_XOVER_SPLIT *c, float (*st)[2],
+                                    float *io, size_t frames) {
+  float s[2][2];
+  memcpy(s, st, sizeof s);
+  for (size_t i = 0; i < frames; i++) {
+    for (int ch = 0; ch < 2; ch++) {
+      const float in = io[2 * i + ch];
+      float v1, v2;
+      tick(c, in, s[ch], &v1, &v2);
+      io[2 * i + ch] = c->k * v1 + 2.0f * v2 - in;
+    }
+  }
+  memcpy(st, s, sizeof s);
 }
 
 /* io's frames through c's allpass: x - 2k band */
@@ -224,7 +271,7 @@ void udsp_xover_split(UDSP_XOVER *x, const float *in, float *const *out,
                       size_t frames) {
   const int n = x->bands;
 #if defined(UDSP_HAVE_V4)
-  if (n == 3) {
+  if (n == 3 && !x->lr2) {
     if (frames) {
       split3(x, in, out, frames);
     }
@@ -236,11 +283,19 @@ void udsp_xover_split(UDSP_XOVER *x, const float *in, float *const *out,
     memcpy(rest, in, frames * 2 * sizeof(float));
   }
   for (int s = 0; s < n - 1; s++) {
-    split(&x->c[s], x->sec[s], rest, out[s], frames);
+    if (x->lr2) {
+      split_lr2(&x->c[s], x->sec[s][0], rest, out[s], frames);
+    } else {
+      split(&x->c[s], x->sec[s], rest, out[s], frames);
+    }
   }
   for (int b = 0; b < n - 2; b++) {
     for (int s = b + 1; s < n - 1; s++) {
-      allpass(&x->c[s], x->ap[b][s], out[b], frames);
+      if (x->lr2) {
+        allpass_lr2(&x->c[s], x->ap[b][s], out[b], frames);
+      } else {
+        allpass(&x->c[s], x->ap[b][s], out[b], frames);
+      }
     }
   }
 }

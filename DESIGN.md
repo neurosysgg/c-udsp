@@ -226,8 +226,11 @@ dyn.c       a float log2 / exp2 of its own (no libm); UDSP_COMP (a soft
 xover.c     UDSP_XOVER: a Linkwitz-Riley crossover, up to five bands at
             24 dB an octave (two Butterworth sections of Simper's SVF each
             way), the lower bands through the higher splits' allpasses so
-            the bands sum flat in level (Multiband Dynamics, OTT; a
-            band-split rack later)
+            the bands sum flat in level (Multiband Dynamics, OTT;
+            ctui-daw's band-split rack); or at 12 dB
+            (udsp_xover_set_lr2: one section at Q 1/2 each way, the high
+            side inverted, the lower bands through low minus high --
+            LFOTool's split)
 disperse.c  UDSP_DISPERSE: up to 128 second-order allpasses in series
             (Simper's SVF as x - 2k band), the amount fractional (the last
             stage faded in), a spread fanning their frequencies by a van

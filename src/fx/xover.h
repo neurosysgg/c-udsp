@@ -12,7 +12,13 @@
  * so all the bands sum to the input through those allpasses: flat in
  * level, the phase turned (Ableton's Multiband Dynamics', OTT's). Retuned
  * per block without thumps (the trapezoidal SVF's state survives a
- * coefficient change). No libm. */
+ * coefficient change). No libm.
+ *
+ * Or at 12 dB an octave (udsp_xover_set_lr2: Linkwitz-Riley's second
+ * order, LFOTool's split): one section each way at Q 1/2 -- the low half
+ * its low pass, the high half its high pass inverted, so the two meet at
+ * -6 dB in phase and sum to a first-order allpass; the lower bands go
+ * through that allpass of each split above (low minus high). */
 
 #define UDSP_XOVER_BANDS 5
 
@@ -21,7 +27,7 @@ typedef struct {
 } UDSP_XOVER_SPLIT;
 
 typedef struct {
-  int bands;
+  int bands, lr2;
   UDSP_XOVER_SPLIT c[UDSP_XOVER_BANDS - 1];
   /* each split's three sections (the first on its input, then the low
    * and the high side's second) and each band's allpasses (band b's at
@@ -36,6 +42,10 @@ void udsp_xover_reset(UDSP_XOVER *x);
 /* bands 1 .. UDSP_XOVER_BANDS, split at hz[0 .. bands - 2] (ascending;
  * each clamped to 10 Hz .. 0.49 of the rate) */
 void udsp_xover_set(UDSP_XOVER *x, int bands, const float *hz, unsigned rate);
+
+/* the same at 12 dB an octave (Linkwitz-Riley's second order) */
+void udsp_xover_set_lr2(UDSP_XOVER *x, int bands, const float *hz,
+                        unsigned rate);
 
 /* in (frames interleaved stereo frames) into out[0 .. bands - 1], the
  * lowest band first; in may be out[bands - 1] */
