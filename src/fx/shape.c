@@ -23,6 +23,9 @@ void udsp_softclip(float *buf, size_t n, float drive) {
   }
 }
 
+/* where the tanh's rational reaches 1 */
+#define TANH_TOP 4.97f
+
 float udsp_shape1(UDSP_SHAPE kind, float x) {
   switch (kind) {
   case UDSP_SHAPE_HARD:
@@ -38,6 +41,19 @@ float udsp_shape1(UDSP_SHAPE kind, float x) {
     return x >= 0.0f ? x / (1.0f + x) : x / (1.0f - 2.0f * x);
   case UDSP_SHAPE_ROOT: /* mda's own expression: -0 stays -0, +0 +0 */
     return x > 0.0f ? sqrtf(x) : -sqrtf(-x);
+  case UDSP_SHAPE_TANH: {
+    if (x >= TANH_TOP || x <= -TANH_TOP) {
+      return x > 0.0f ? 1.0f : -1.0f;
+    }
+    const float q = x * x;
+    return x * (135135.0f + q * (17325.0f + q * (378.0f + q))) /
+           (135135.0f + q * (62370.0f + q * (3150.0f + q * 28.0f)));
+  }
+  case UDSP_SHAPE_QUINTIC: {
+    const float c = x > 1.0f ? 1.0f : (x < -1.0f ? -1.0f : x);
+    const float q = c * c;
+    return c * (15.0f + q * (-10.0f + q * 3.0f)) * 0.125f;
+  }
   default:
     if (x >= 3.0f || x <= -3.0f) {
       return x > 0.0f ? 1.0f : -1.0f;
@@ -64,6 +80,18 @@ static UDSP_VF vshape(UDSP_SHAPE kind, UDSP_VF x) {
     return udsp_vsel(x >= 0.0f, x / (1.0f + x), x / (1.0f - 2.0f * x));
   case UDSP_SHAPE_ROOT: /* the lanes not picked a NaN, never seen */
     return udsp_vsel(x > 0.0f, udsp_vsqrt(x), -udsp_vsqrt(-x));
+  case UDSP_SHAPE_TANH: {
+    const UDSP_VF q = x * x;
+    const UDSP_VF p = x * (135135.0f + q * (17325.0f + q * (378.0f + q))) /
+                      (135135.0f + q * (62370.0f + q * (3150.0f + q * 28.0f)));
+    const UDSP_VI big = (x >= TANH_TOP) | (x <= -TANH_TOP);
+    return udsp_vsel(big, udsp_vsel(x > 0.0f, one, neg), p);
+  }
+  case UDSP_SHAPE_QUINTIC: {
+    const UDSP_VF c = udsp_vsel(x > one, one, udsp_vsel(x < neg, neg, x));
+    const UDSP_VF q = c * c;
+    return c * (15.0f + q * (-10.0f + q * 3.0f)) * 0.125f;
+  }
   default: {
     /* one expression, as udsp_shape1()'s: a compiler that contracts
      * (clang) fuses the same multiplies and adds in both */

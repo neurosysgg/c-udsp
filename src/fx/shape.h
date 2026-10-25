@@ -11,9 +11,9 @@
  * / 4) makeup keeps it from being a volume knob too. drive >= 1. */
 void udsp_softclip(float *buf, size_t n, float drive);
 
-/* A saturator's curves, each but root passing a small signal as it is
- * (slope 1 at 0) and none a volume knob of its own (no makeup: the caller's
- * output gain is):
+/* A saturator's curves, each but root and quintic passing a small signal
+ * as it is (slope 1 at 0) and none a volume knob of its own (no makeup: the
+ * caller's output gain is):
  * - soft: tanh's shape, a rational (x (27 + x^2) / (27 + 9 x^2), Padé's)
  *   reaching +-1 at |x| = 3 and staying there;
  * - hard: clipped at +-1;
@@ -25,13 +25,21 @@ void udsp_softclip(float *buf, size_t n, float drive);
  * - root: sign(x) sqrt(|x|), mda Overdrive's (Paul Kellett's): the
  *   exception to slope 1 -- a small signal comes out louder (1e-2 as
  *   1e-1), a large one quieter, no ceiling; mda blends it with the dry
- *   signal by its drive, a saturator's mix at a drive of 1. */
+ *   signal by its drive, a saturator's mix at a drive of 1;
+ * - tanh: tanh itself, near enough -- Padé's [7/6] (1e-6 to |x| = 3,
+ *   1e-4 at worst), +-1 from |x| = 4.97 where it reaches 1; Kilohearts'
+ *   Distortion's Overdrive, measured (ctui-wm's notes/vst-replace.md);
+ * - quintic: (15 x - 10 x^3 + 3 x^5) / 8, +-1 from |x| = 1 -- slope
+ *   15 / 8 at 0 and flat into its ceiling (the integral of (1 - x^2)^2):
+ *   Kilohearts' Saturate, measured to 1e-6. */
 typedef enum {
   UDSP_SHAPE_SOFT,
   UDSP_SHAPE_HARD,
   UDSP_SHAPE_FOLD,
   UDSP_SHAPE_TUBE,
   UDSP_SHAPE_ROOT,
+  UDSP_SHAPE_TANH,
+  UDSP_SHAPE_QUINTIC,
   UDSP_SHAPES,
 } UDSP_SHAPE;
 

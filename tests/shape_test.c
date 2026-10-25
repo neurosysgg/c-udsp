@@ -39,10 +39,45 @@ static void test_shapes(void) {
   int small = 1;
   for (int k = 0; k < UDSP_SHAPES; k++) {
     float y = udsp_shape1((UDSP_SHAPE)k, 1e-3f);
-    small &= k == UDSP_SHAPE_ROOT || fabsf(y - 1e-3f) < 1e-5f;
+    small &= k == UDSP_SHAPE_ROOT || k == UDSP_SHAPE_QUINTIC ||
+             fabsf(y - 1e-3f) < 1e-5f;
   }
-  UDSP_TEST_ASSERT(small,
-                   "every curve but root passes a small signal as it is");
+  UDSP_TEST_ASSERT(small, "every curve but root and quintic passes a small "
+                          "signal as it is");
+  float worst = 0.0f;
+  int odd = 1, capped = 1;
+  for (int i = 0; i <= 9000; i++) {
+    const float x = (float)i * 1e-3f;
+    const float y = udsp_shape1(UDSP_SHAPE_TANH, x);
+    const float e = fabsf(y - (float)tanh((double)x));
+    worst = e > worst ? e : worst;
+    odd &= udsp_shape1(UDSP_SHAPE_TANH, -x) == -y;
+    capped &= y <= 1.0f;
+  }
+  UDSP_TEST_ASSERT(worst < 1.1e-4f && odd && capped,
+                   "tanh: within 1e-4 of tanh to 9 (%.2e), odd, never past 1",
+                   (double)worst);
+  UDSP_TEST_ASSERT(fabsf(udsp_shape1(UDSP_SHAPE_TANH, 1.0f) - 0.7615942f) <
+                           2e-6f &&
+                       udsp_shape1(UDSP_SHAPE_TANH, 4.97f) == 1.0f,
+                   "tanh: 0.76159 at 1 (Kilohearts' Overdrive), 1 from 4.97");
+  /* Kilohearts' Saturate, measured through the plugin (DC steps) */
+  static const float SAT[][2] = {{0.1f, 0.18625f},
+                                 {0.3f, 0.52966f},
+                                 {0.5f, 0.79297f},
+                                 {0.7f, 0.94678f},
+                                 {0.9f, 0.99768f}};
+  int sat = 1;
+  for (size_t i = 0; i < sizeof SAT / sizeof *SAT; i++) {
+    sat &=
+        fabsf(udsp_shape1(UDSP_SHAPE_QUINTIC, SAT[i][0]) - SAT[i][1]) < 2e-5f;
+  }
+  UDSP_TEST_ASSERT(
+      sat && udsp_shape1(UDSP_SHAPE_QUINTIC, 1.0f) == 1.0f &&
+          udsp_shape1(UDSP_SHAPE_QUINTIC, -7.0f) == -1.0f &&
+          fabsf(udsp_shape1(UDSP_SHAPE_QUINTIC, 1e-3f) - 1.875e-3f) < 1e-7f,
+      "quintic: Kilohearts' Saturate's values, 1 from 1, "
+      "slope 15 / 8 at 0");
   UDSP_TEST_ASSERT(udsp_shape1(UDSP_SHAPE_SOFT, 3.0f) == 1.0f &&
                        udsp_shape1(UDSP_SHAPE_SOFT, 10.0f) == 1.0f &&
                        fabsf(udsp_shape1(UDSP_SHAPE_SOFT, 1.0f) - 0.7778f) <
@@ -77,12 +112,13 @@ static void test_shape_mix(void) {
   enum { N = 1031 };
   static float in[N], got[N], want[N];
   static const float EDGE[] = {
-      0.0f,   -0.0f,   1.0f,   -1.0f,   3.0f,       -3.0f,       2.99f, -2.99f,
-      1e-30f, -1e-30f, 500.0f, -500.0f, 6.2831855f, -6.2831855f, 0.5f};
+      0.0f,   -0.0f,  1.0f,    -1.0f,  3.0f,    -3.0f,      2.99f,
+      -2.99f, 1e-30f, -1e-30f, 500.0f, -500.0f, 6.2831855f, -6.2831855f,
+      0.5f,   4.97f,  -4.97f,  4.96f,  -4.96f,  1.0001f,    -0.9999f};
   uint32_t r = 12345;
   for (int i = 0; i < N; i++) {
     r = r * 1664525u + 1013904223u;
-    in[i] = i < 15 ? EDGE[i] : ((float)(r >> 8) / 16777216.0f - 0.5f) * 9.0f;
+    in[i] = i < 21 ? EDGE[i] : ((float)(r >> 8) / 16777216.0f - 0.5f) * 9.0f;
   }
   static const float DRIVE[] = {1.0f, 3.7f, 0.25f};
   static const size_t LEN[] = {N, 7, 256, 257};
