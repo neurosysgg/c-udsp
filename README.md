@@ -110,6 +110,7 @@ There's no single umbrella header — include only what you need
 #include "fx/xover.h"        /* UDSP_XOVER -- a Linkwitz-Riley crossover */
 #include "fx/disperse.h"     /* UDSP_DISPERSE -- allpasses in series */
 #include "fx/line.h"         /* UDSP_LINE -- a mono delay line, fractional reads */
+#include "fx/velvet.h"       /* UDSP_VELVET -- a velvet-noise decorrelator (sparse FIR) */
 #include "fx/delay.h"        /* UDSP_DELAY -- stereo feedback delay, caller's ring */
 #include "fx/fdn.h"          /* UDSP_FDN -- a feedback delay network reverb */
 #include "fx/dyn.h"          /* UDSP_COMP, UDSP_UDCOMP, UDSP_GATE, UDSP_LIMITER --

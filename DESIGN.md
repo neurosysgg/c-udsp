@@ -22,7 +22,7 @@ src/analysis/   measuring a signal: analyze, spectrum, spectrogram,
 src/synth/      making one: pitch, osc, wtab, lfo, adsr, openv, ramp,
                 smooth, sampler
 src/fx/         changing one, in a render: svf, zdf, eq, xover, disperse,
-                line, delay, fdn, dyn, shape, gain, conv
+                line, velvet, delay, fdn, dyn, shape, gain, conv
 src/offline/    changing one ahead of a render, at any cost: sinc,
                 stretch, dither, irfb
 ```
@@ -234,6 +234,11 @@ disperse.c  UDSP_DISPERSE: up to 128 second-order allpasses in series
             der Corput sequence so more stages never move the ones there
 line.c      UDSP_LINE: a mono delay line a power of two long, read at a
             whole or fractional delay (Catmull-Rom between four)
+velvet.c    UDSP_VELVET: a velvet-noise filter (Alary, Politis and
+            Välimäki's decorrelator) -- segments of +-g taps, one a cell
+            at a random place and sign (xorshift32 from a seed), read over
+            a UDSP_LINE a block at a time; mid into side widens without a
+            delay's comb (ctui-daw's Utility: Ozone Imager's Stereoize II)
 fdn.c       UDSP_FDN: a reverb -- eight lines through a Hadamard matrix,
             each damped and its gain set from the decay, modulated reads,
             a predelay and four diffusing allpasses ahead
