@@ -206,6 +206,126 @@ static void test_idle(void) {
   free(mb);
 }
 
+/* a sine of hz half a second, then its tail's fall, dB a second (from
+ * 0.7 to 1.2 s) */
+static double fall(UDSP_FDN *f, double hz) {
+  const int n = RATE * 3 / 2;
+  float *x = calloc((size_t)n * 2, sizeof(float));
+  for (int i = 0; i < RATE / 2; i++) {
+    x[2 * i] = x[2 * i + 1] = (float)sin(2 * 3.141592653589793 * hz * i / RATE);
+  }
+  udsp_fdn_clear(f);
+  udsp_fdn_stereo(f, x, x, (size_t)n);
+  double e[2] = {0, 0};
+  for (int w = 0; w < 2; w++) {
+    const int at = RATE * 7 / 10 + w * RATE / 2;
+    for (int i = at; i < at + RATE / 10; i++) {
+      e[w] += (double)x[2 * i] * x[2 * i] + (double)x[2 * i + 1] * x[2 * i + 1];
+    }
+  }
+  free(x);
+  return 10.0 * log10(e[0] / e[1]) / 0.5;
+}
+
+/* the shelf: the highs lose its dB a second over the decay, at any
+ * decay; at 0 none, not even the cubic's (whole frames) */
+static void test_shelf(void) {
+  UDSP_FDN f;
+  float *mem = fdn_new(&f);
+  double extra[2];
+  const float decays[2] = {2.0f, 4.0f};
+  for (int k = 0; k < 2; k++) {
+    udsp_fdn_set_shelf(&f, 1, 60.0f, 3000.0f, 0.0f);
+    udsp_fdn_set(&f, 1.0f, decays[k], 1000.0f, 0.6f, 0.0f, 0.0f, 1.0f);
+    extra[k] = fall(&f, 8000) - fall(&f, 200);
+  }
+  UDSP_TEST_ASSERT(fabs(extra[0] - 60) < 6 && fabs(extra[1] - 60) < 6,
+                   "a 60 dB/s shelf at 1 kHz: 8 kHz falls %.1f / %.1f dB/s "
+                   "faster than 200 Hz at 2 / 4 s",
+                   extra[0], extra[1]);
+  udsp_fdn_set_shelf(&f, 1, 0.0f, 3000.0f, 0.0f);
+  udsp_fdn_set(&f, 1.0f, 2.0f, 1000.0f, 0.6f, 0.0f, 0.0f, 1.0f);
+  const double lo = fall(&f, 200), hi = fall(&f, 12000);
+  UDSP_TEST_ASSERT(fabs(hi - lo) < 2 && fabs(lo - 30) < 4,
+                   "a shelf of none: 12 kHz falls as 200 Hz (%.1f, %.1f dB/s)",
+                   hi, lo);
+  free(mem);
+}
+
+/* the early taps alone (none of the input or theirs into the lines):
+ * each where and as loud as set; early 0.5 half way between 0 and 1 */
+static void test_early(void) {
+  static const UDSP_FDN_TAP T[] = {
+      {10.0f, 0, 0, -0.45f}, {20.0f, 0, 1, 0.4f}, {30.0f, 1, 0, 0.25f}};
+  UDSP_FDN f;
+  float *mem = fdn_new(&f);
+  const int n = RATE / 10;
+  static float x[2 * RATE / 10];
+  udsp_fdn_set(&f, 1.0f, 1.0f, 8000.0f, 0.0f, 0.0f, 0.0f, 1.0f);
+  udsp_fdn_set_early(&f, T, 3, 1.0f, 0.0f, 0.0f);
+  memset(x, 0, sizeof x);
+  x[0] = 1.0f;
+  udsp_fdn_stereo(&f, x, x, (size_t)n);
+  int ok = 1;
+  for (int i = 0; i < n; i++) {
+    const float l = i == 480 ? -0.45f : 0.0f, r = i == 960 ? 0.4f : 0.0f;
+    ok &= fabsf(x[2 * i] - l) < 1e-6f && fabsf(x[2 * i + 1] - r) < 1e-6f;
+  }
+  UDSP_TEST_ASSERT(ok, "a left impulse: -0.45 left at 10 ms, 0.4 right at "
+                       "20 ms, nothing else");
+  float *y[3];
+  const float early[3] = {0.0f, 1.0f, 0.5f};
+  for (int k = 0; k < 3; k++) {
+    y[k] = calloc((size_t)n * 2, sizeof(float));
+    y[k][0] = 1.0f;
+    udsp_fdn_clear(&f);
+    udsp_fdn_set_early(&f, T, 3, early[k], 0.6f, 1.0f);
+    udsp_fdn_stereo(&f, y[k], y[k], (size_t)n);
+  }
+  float worst = 0.0f;
+  for (int i = 0; i < 2 * n; i++) {
+    worst = fmaxf(worst, fabsf(y[2][i] - 0.5f * (y[0][i] + y[1][i])));
+  }
+  UDSP_TEST_ASSERT(worst < 1e-6f, "early 0.5 between 0 and 1 (%.2e)", worst);
+  for (int k = 0; k < 3; k++) {
+    free(y[k]);
+  }
+  free(mem);
+}
+
+/* the tail's gain: half of it half as loud; width 2 the side
+ * twice width 1's */
+static void test_diffuse_width(void) {
+  UDSP_FDN f;
+  float *mem = fdn_new(&f);
+  const int n = RATE / 5;
+  float *y[3];
+  const float gain[3] = {1.0f, 0.5f, 1.0f}, width[3] = {1.0f, 1.0f, 2.0f};
+  for (int k = 0; k < 3; k++) {
+    y[k] = calloc((size_t)n * 2, sizeof(float));
+    y[k][0] = 1.0f;
+    udsp_fdn_clear(&f);
+    udsp_fdn_set(&f, 1.0f, 1.0f, 8000.0f, 0.6f, 0.0f, 0.0f, width[k]);
+    udsp_fdn_set_diffuse(&f, gain[k]);
+    udsp_fdn_stereo(&f, y[k], y[k], (size_t)n);
+  }
+  float half = 0.0f, side = 0.0f;
+  for (int i = 0; i < n; i++) {
+    half = fmaxf(half, fmaxf(fabsf(y[1][2 * i] - 0.5f * y[0][2 * i]),
+                             fabsf(y[1][2 * i + 1] - 0.5f * y[0][2 * i + 1])));
+    side = fmaxf(side, fabsf((y[2][2 * i] - y[2][2 * i + 1]) -
+                             2.0f * (y[0][2 * i] - y[0][2 * i + 1])));
+  }
+  UDSP_TEST_ASSERT(half < 1e-7f && side < 1e-5f,
+                   "diffuse 0.5: half (%.2e); width 2: the side doubled "
+                   "(%.2e)",
+                   half, side);
+  for (int k = 0; k < 3; k++) {
+    free(y[k]);
+  }
+  free(mem);
+}
+
 int main(void) {
   printf("fdn_test\n");
   test_line();
@@ -213,6 +333,9 @@ int main(void) {
   test_decay();
   test_stable_and_blocks();
   test_predelay();
+  test_shelf();
+  test_early();
+  test_diffuse_width();
   test_idle();
   return udsp_test_summary();
 }

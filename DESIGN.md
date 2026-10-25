@@ -248,7 +248,10 @@ velvet.c    UDSP_VELVET: a velvet-noise filter (Alary, Politis and
             delay's comb (ctui-daw's Utility: Ozone Imager's Stereoize II)
 fdn.c       UDSP_FDN: a reverb -- eight lines through a Hadamard matrix,
             each damped and its gain set from the decay, modulated reads,
-            a predelay and four diffusing allpasses ahead
+            a predelay and four diffusing allpasses ahead; the damping
+            a low-pass or two high shelves (dB a second), early taps
+            crossfaded in and fed to the lines, a tail gain (Kilohearts'
+            Reverb's, measured)
 conv.c      UDSP_CONV_IN: uniformly partitioned convolution (overlap-save)
             -- a response's partitions' spectra, an input's delay line of
             spectra, a multiply-add of the two into an accumulator per
