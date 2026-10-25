@@ -239,6 +239,13 @@ disperse.c  UDSP_DISPERSE: up to 128 second-order allpasses in series
             (Simper's SVF as x - 2k band), the amount fractional (the last
             stage faded in), a spread fanning their frequencies by a van
             der Corput sequence so more stages never move the ones there
+bank.c      UDSP_BANK: up to 104 band-passes side by side (1-4 Simper
+            SVF stages each, unity at the centre, the stages widened so
+            the band keeps its -3 dB width), kept as arrays across the
+            bank so a frame runs UDSP_W bands at once; their complex
+            responses and noise widths; UDSP_FOLLOW their envelopes
+            (|x| through an attack / release one-pole, a hold) --
+            ctui-daw's vocoder
 line.c      UDSP_LINE: a mono delay line a power of two long, read at a
             whole or fractional delay (Catmull-Rom between four)
 velvet.c    UDSP_VELVET: a velvet-noise filter (Alary, Politis and
