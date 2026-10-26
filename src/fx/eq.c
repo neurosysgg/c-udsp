@@ -3,6 +3,7 @@
 #include <math.h>
 
 #include "base/simd.h"
+#include "base/trig.h"
 #include "synth/osc.h"
 #include "synth/pitch.h"
 
@@ -16,6 +17,116 @@ void udsp_eq_reset(UDSP_EQ_BAND *b) {
     b->ic1[s][0] = b->ic1[s][1] = b->ic2[s][0] = b->ic2[s][1] = 0.0f;
   }
 }
+
+#define LOG2E 1.4426950408889634
+
+void udsp_eq_bell_matched(double hz, double q, double gain_db, unsigned rate,
+                          double b[3], double a[3]) {
+  const int cut = gain_db < 0.0;
+  const double A =
+      udsp_exp2((cut ? -gain_db : gain_db) * (3.321928094887362 / 40.0));
+  const double G = A * A, t = hz / (double)rate,
+               w = 2.0 * 3.141592653589793 * t;
+  const double z = 1.0 / (2.0 * q * A);
+  const double r = udsp_exp2(-z * w * LOG2E);
+  a[0] = 1.0;
+  if (z < 1.0) {
+    a[1] = -2.0 * r * udsp_sin_pi(sqrt(1.0 - z * z) * t * 2.0 + 0.5);
+  } else { /* real poles (q under 0.5): cosh */
+    const double e = udsp_exp2(sqrt(z * z - 1.0) * w * LOG2E);
+    a[1] = -r * (e + 1.0 / e);
+  }
+  a[2] = r * r;
+  const double A0 = (1.0 + a[1] + a[2]) * (1.0 + a[1] + a[2]);
+  const double A1 = (1.0 - a[1] + a[2]) * (1.0 - a[1] + a[2]), A2 = -4.0 * a[2];
+  const double s = udsp_sin_pi(t), p1 = s * s, p0 = 1.0 - p1,
+               p2 = 4.0 * p0 * p1;
+  /* the prototype's power at hz is G^2 */
+  const double R1 = (A0 * p0 + A1 * p1 + A2 * p2) * G * G;
+  const double R2 = (-A0 + A1 + 4.0 * (p0 - p1) * A2) * G * G;
+  const double B0 = A0, B2 = (R1 - R2 * p1 - B0) / (4.0 * p1 * p1);
+  double B1 = R2 + B0 + 4.0 * (p1 - p0) * B2;
+  B1 = B1 > 0.0 ? B1 : 0.0;
+  const double W = 0.5 * (sqrt(B0) + sqrt(B1));
+  b[0] = 0.5 * (W + sqrt(W * W + B2));
+  b[1] = 0.5 * (sqrt(B0) - sqrt(B1));
+  b[2] = -B2 / (4.0 * b[0]);
+  if (cut) {
+    const double n[3] = {b[0], b[1], b[2]};
+    for (int i = 0; i < 3; i++) {
+      b[i] = a[i] / n[0];
+      a[i] = n[i] / n[0];
+    }
+  }
+}
+
+/* e^x without libm */
+static double exp_of(double x) { return udsp_exp2(x * LOG2E); }
+
+void udsp_eq_matched(const double n[3], const double d[2], double hz,
+                     unsigned rate, double b[3], double a[3]) {
+  const double t = hz / (double)rate, w = 2.0 * 3.141592653589793 * t;
+  const double disc = d[1] * d[1] * 0.25 - d[0];
+  a[0] = 1.0;
+  if (disc < 0.0) {
+    const double r = exp_of(-0.5 * d[1] * w);
+    a[1] = -2.0 * r * udsp_sin_pi(sqrt(-disc) * 2.0 * t + 0.5);
+    a[2] = r * r;
+  } else {
+    const double r1 = exp_of((-0.5 * d[1] + sqrt(disc)) * w),
+                 r2 = exp_of((-0.5 * d[1] - sqrt(disc)) * w);
+    a[1] = -(r1 + r2);
+    a[2] = r1 * r2;
+  }
+  /* the prototype's power at x times hz */
+#define POWER(x)                                                               \
+  (((n[0] - n[2] * (x) * (x)) * (n[0] - n[2] * (x) * (x)) +                    \
+    n[1] * n[1] * (x) * (x)) /                                                 \
+   ((d[0] - (x) * (x)) * (d[0] - (x) * (x)) + d[1] * d[1] * (x) * (x)))
+  const double xn = 0.5 / t;
+  const double P0 = POWER(0.0), Pw = POWER(1.0), PN = POWER(xn);
+#undef POWER
+  const double A0 = (1.0 + a[1] + a[2]) * (1.0 + a[1] + a[2]);
+  const double A1 = (1.0 - a[1] + a[2]) * (1.0 - a[1] + a[2]), A2 = -4.0 * a[2];
+  const double s = udsp_sin_pi(t), p1 = s * s, p0 = 1.0 - p1,
+               p2 = 4.0 * p0 * p1;
+  const double B0 = P0 * A0, B1 = PN * A1;
+  const double B2 =
+      (Pw * (A0 * p0 + A1 * p1 + A2 * p2) - B0 * p0 - B1 * p1) / p2;
+  const double W = 0.5 * (sqrt(B0) + sqrt(B1)), q = W * W + B2;
+  b[0] = 0.5 * (W + sqrt(q > 0.0 ? q : 0.0));
+  b[1] = 0.5 * (sqrt(B0) - sqrt(B1));
+  b[2] = b[0] > 0.0 ? -B2 / (4.0 * b[0]) : 0.0;
+}
+
+void udsp_eq_matched1(double k, double zero_hz, double pole_hz, int high_pass,
+                      unsigned rate, double b[3], double a[3]) {
+  const double p = exp_of(-2.0 * 3.141592653589793 * pole_hz / (double)rate);
+  const double xn = 0.5 * (double)rate / pole_hz;
+  const double yn = zero_hz > 0.0 ? 0.5 * (double)rate / zero_hz : 0.0;
+  /* the prototype's magnitudes at DC and at half the rate */
+  const double m0 = high_pass ? 0.0 : k;
+  const double mn =
+      (high_pass ? k * xn : k * sqrt(1.0 + yn * yn)) / sqrt(1.0 + xn * xn);
+  a[0] = 1.0;
+  a[1] = -p;
+  a[2] = 0.0;
+  b[0] = 0.5 * (m0 * (1.0 - p) + mn * (1.0 + p));
+  b[1] = 0.5 * (m0 * (1.0 - p) - mn * (1.0 + p));
+  b[2] = 0.0;
+}
+
+double udsp_eq_biquad_power(const double b[3], const double a[3], double phi) {
+  const double p0 = 1.0 - phi, p2 = 4.0 * p0 * phi;
+  const double sb = b[0] + b[1] + b[2], db = b[0] - b[1] + b[2];
+  const double sa = a[0] + a[1] + a[2], da = a[0] - a[1] + a[2];
+  return (sb * sb * p0 + db * db * phi - 4.0 * b[0] * b[2] * p2) /
+         (sa * sa * p0 + da * da * phi - 4.0 * a[0] * a[2] * p2);
+}
+
+/* a biquad as the SVF's section: z = (1 + g s) / (1 - g s), g where the
+ * denominator's s^2 and 1 agree (the bilinear's prewarp read back) */
+static void stage_of(UDSP_EQ_STAGE *st, const double b[3], const double a[3]);
 
 /* tan(pi t), t a fraction of the rate: a half turn's angle as turns */
 static float tan_rate(float t) {
@@ -32,6 +143,16 @@ static void stage(UDSP_EQ_STAGE *s, float g, float k, float m0, float m1,
   s->m0 = m0;
   s->m1 = m1;
   s->m2 = m2;
+}
+
+static void stage_of(UDSP_EQ_STAGE *st, const double b[3], const double a[3]) {
+  const double d0 = a[0] + a[1] + a[2], d2 = a[0] - a[1] + a[2];
+  const double g = sqrt(d0 / d2), k = 2.0 * g * (a[0] - a[2]) / d0;
+  const double m0 = (b[0] - b[1] + b[2]) / d2;
+  const double n1 = 2.0 * g * (b[0] - b[2]) / d0,
+               n0 = (b[0] + b[1] + b[2]) / d0;
+  stage(st, (float)g, (float)k, (float)m0, (float)(n1 - m0 * k),
+        (float)(n0 - m0));
 }
 
 void udsp_eq_set(UDSP_EQ_BAND *b, UDSP_EQ_SHAPE shape, float hz, float q,
@@ -83,6 +204,46 @@ void udsp_eq_set(UDSP_EQ_BAND *b, UDSP_EQ_SHAPE shape, float hz, float q,
   case UDSP_EQ_BAND_PASS:
     stage(&b->st[0], g, k, 0.0f, k, 0.0f);
     break;
+  case UDSP_EQ_LOW_SHELF_MATCHED:
+  case UDSP_EQ_HIGH_SHELF_MATCHED: {
+    /* RBJ's analog shelves, their denominators made monic */
+    const double A = udsp_exp2(gain_db * (3.321928094887362 / 40.0)),
+                 r = sqrt(A) / q;
+    const int high = shape == UDSP_EQ_HIGH_SHELF_MATCHED;
+    const double n[3] = {A, high ? A * r : r, high ? A * A : 1.0};
+    const double d[2] = {high ? A : 1.0 / A, high ? r : r / A};
+    double bb[3], aa[3];
+    udsp_eq_matched(n, d, (double)t * rate, rate, bb, aa);
+    stage_of(&b->st[0], bb, aa);
+    break;
+  }
+  case UDSP_EQ_LOW_CUT_6:
+  case UDSP_EQ_HIGH_CUT_6:
+  case UDSP_EQ_LOW_SHELF_6:
+  case UDSP_EQ_HIGH_SHELF_6: {
+    const double f = (double)t * rate,
+                 G = udsp_exp2(gain_db * (3.321928094887362 / 20.0)),
+                 sg = sqrt(G);
+    double bb[3], aa[3];
+    if (shape == UDSP_EQ_LOW_CUT_6) {
+      udsp_eq_matched1(1.0, 0.0, f, 1, rate, bb, aa);
+    } else if (shape == UDSP_EQ_HIGH_CUT_6) {
+      udsp_eq_matched1(1.0, 0.0, f, 0, rate, bb, aa);
+    } else if (shape == UDSP_EQ_LOW_SHELF_6) {
+      /* G at DC, 1 at the top: the pole under the zero by G */
+      udsp_eq_matched1(G, f * sg, f / sg, 0, rate, bb, aa);
+    } else {
+      udsp_eq_matched1(1.0, f / sg, f * sg, 0, rate, bb, aa);
+    }
+    stage_of(&b->st[0], bb, aa);
+    break;
+  }
+  case UDSP_EQ_BELL_MATCHED: {
+    double bb[3], aa[3];
+    udsp_eq_bell_matched((double)t * rate, q, gain_db, rate, bb, aa);
+    stage_of(&b->st[0], bb, aa);
+    break;
+  }
   default: {
     /* the bell: its bandwidth kept as the gain changes (Q / A) */
     const float kb = 1.0f / (q * a);

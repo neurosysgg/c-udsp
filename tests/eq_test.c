@@ -265,8 +265,115 @@ static void test_chain(void) {
   UDSP_TEST_ASSERT(none[0] == 0.5f && none[1] == -0.5f, "no bands: as it was");
 }
 
+/* the matched bell: its gain at the centre, flat at DC, the cut the
+ * boost's inverse; no cramping at the top; the
+ * section (Simper's SVF) the biquad it was designed as */
+static void test_matched(void) {
+  check(UDSP_EQ_BELL_MATCHED, 1000.0f, 2.0f, 6.0f, 1000.0f, 6.0f, 0.02f,
+        "matched bell +6 at its centre");
+  check(UDSP_EQ_BELL_MATCHED, 50.0f, 2.0f, -12.0f, 50.0f, -12.0f, 0.03f,
+        "matched bell -12 at 50 Hz");
+  check(UDSP_EQ_BELL_MATCHED, 1000.0f, 2.0f, 6.0f, 20.0f, 0.0f, 0.01f,
+        "matched bell: flat far below");
+  double b[3], a[3], bc[3], ac[3];
+  udsp_eq_bell_matched(12000.0, 2.0, 9.0, RATE, b, a);
+  udsp_eq_bell_matched(12000.0, 2.0, -9.0, RATE, bc, ac);
+  double worst = 0.0, svf = 0.0;
+  UDSP_EQ_BAND f;
+  udsp_eq_set(&f, UDSP_EQ_BELL_MATCHED, 12000.0f, 2.0f, 9.0f, RATE);
+  for (int n = 0; n < 57; n++) {
+    const double hz = 100.0 * pow(1.1, n);
+    const double s = sin(3.141592653589793 * hz / RATE), phi = s * s;
+    const double p = udsp_eq_biquad_power(b, a, phi);
+    worst = fmax(worst, fabs(p * udsp_eq_biquad_power(bc, ac, phi) - 1.0));
+    svf = fmax(svf, fabs(10.0 * log10(p) -
+                         20.0 * log10(udsp_eq_response(&f, (float)hz, RATE))));
+  }
+  /* at half the rate, an octave over 12 kHz, the bilinear's bell is
+   * back to 0 dB; the matched one keeps its skirt */
+  const double top = 10.0 * log10(udsp_eq_biquad_power(b, a, 1.0));
+  UDSP_TEST_ASSERT(top > 1.5 && top < 1.8, "half the rate: %.3f dB", top);
+  UDSP_TEST_ASSERT(worst < 1e-9, "a cut is the boost's inverse (%.1e)", worst);
+  UDSP_TEST_ASSERT(svf < 0.01, "the SVF section is the biquad (%.4f dB)", svf);
+}
+
+/* the matched shelves and the first-order shapes: each against its
+ * analog prototype across the band, and through the filter itself */
+static double proto_db(UDSP_EQ_SHAPE shape, double hz, double q, double g,
+                       double f) {
+  const double A = pow(10.0, g / 40.0), G = A * A, x = f / hz;
+  if (shape == UDSP_EQ_HIGH_SHELF_MATCHED ||
+      shape == UDSP_EQ_LOW_SHELF_MATCHED) {
+    const double r = sqrt(A) / q;
+    const int high = shape == UDSP_EQ_HIGH_SHELF_MATCHED;
+    /* A (A s^2 + r s + 1) / (s^2 + r s + A) and its mirror */
+    double num_re, num_im, den_re, den_im;
+    if (high) {
+      num_re = A * (1 - A * x * x), num_im = A * r * x;
+      den_re = A - x * x, den_im = r * x;
+    } else {
+      num_re = A * (A - x * x), num_im = A * r * x;
+      den_re = 1 - A * x * x, den_im = r * x;
+    }
+    return 10 * log10((num_re * num_re + num_im * num_im) /
+                      (den_re * den_re + den_im * den_im));
+  }
+  if (shape == UDSP_EQ_LOW_CUT_6) {
+    return 10 * log10(x * x / (1 + x * x));
+  }
+  if (shape == UDSP_EQ_HIGH_CUT_6) {
+    return 10 * log10(1 / (1 + x * x));
+  }
+  /* first-order shelves: corners hz / sqrt G and hz sqrt G */
+  const double sg = sqrt(G), lo = x * sg, hi = x / sg;
+  return shape == UDSP_EQ_HIGH_SHELF_6
+             ? 10 * log10((1 + lo * lo) / (1 + hi * hi))
+             : 20 * log10(G) + 10 * log10((1 + hi * hi) / (1 + lo * lo));
+}
+
+static void test_matched_more(void) {
+  static const struct {
+    UDSP_EQ_SHAPE shape;
+    float hz, q, g;
+    double tol;
+  } C[] = {
+      {UDSP_EQ_HIGH_SHELF_MATCHED, 9495, 0.224f, 1.3f, 0.04},
+      {UDSP_EQ_HIGH_SHELF_MATCHED, 1000, 0.7f, 6, 0.04},
+      {UDSP_EQ_LOW_SHELF_MATCHED, 200, 0.7f, -9, 0.04},
+      {UDSP_EQ_LOW_CUT_6, 60, 1, 0, 0.02},
+      /* a one-pole matched at two points: within 1 dB at the top */
+      {UDSP_EQ_HIGH_CUT_6, 2000, 1, 0, 1.0},
+      {UDSP_EQ_HIGH_SHELF_6, 7655, 1, 1.44f, 0.06},
+      {UDSP_EQ_LOW_SHELF_6, 300, 1, -6, 0.02},
+  };
+  for (size_t c = 0; c < sizeof C / sizeof *C; c++) {
+    UDSP_EQ_BAND b;
+    udsp_eq_reset(&b);
+    udsp_eq_set(&b, C[c].shape, C[c].hz, C[c].q, C[c].g, RATE);
+    double worst = 0.0;
+    for (int k = 0; k < 60; k++) {
+      const double f = 20.0 * pow(1000.0, k / 59.0);
+      worst =
+          fmax(worst, fabs(20 * log10(udsp_eq_response(&b, (float)f, RATE)) -
+                           proto_db(C[c].shape, C[c].hz, C[c].q, C[c].g, f)));
+    }
+    int same;
+    const double f = C[c].hz * 1.5;
+    const double heard =
+        db(gain_at(C[c].shape, C[c].hz, C[c].q, C[c].g, (float)f, &same));
+    UDSP_TEST_ASSERT(worst < C[c].tol &&
+                         fabs(heard - proto_db(C[c].shape, C[c].hz, C[c].q,
+                                               C[c].g, f)) < C[c].tol + 0.02,
+                     "shape %d at %.0f Hz: within %.3f dB of its prototype "
+                     "to 20 kHz, a sine through it %.3f dB",
+                     (int)C[c].shape, (double)C[c].hz, worst, heard);
+  }
+}
+
 int main(void) {
   printf("eq_test\n");
+  test_matched();
+  test_matched_more();
   test_shapes();
   test_response();
   test_swept_stable();

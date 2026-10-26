@@ -55,8 +55,34 @@ static void test_quadrature(void) {
                    20 * log10(u / l));
 }
 
+/* the FIR: a quarter behind, flat, from 60 Hz up (1683 taps: Ozone 11
+ * Imager's recover at 48 kHz) */
+static void test_fir(void) {
+  enum { TAPS = 1683 };
+  static float h[TAPS];
+  udsp_hilbert_fir(h, TAPS);
+  const int c = TAPS / 2;
+  double mag = 0.0, ph = 0.0;
+  for (int k = 0; k < 9; k++) {
+    const double hz = 60.0 * pow(2.0, k);
+    double re = 0.0, im = 0.0;
+    for (int i = 0; i < TAPS; i++) {
+      const double a = 6.283185307179586 * hz * (i - c) / RATE;
+      re += h[i] * cos(a);
+      im -= h[i] * sin(a);
+    }
+    mag = fmax(mag, fabs(10.0 * log10(re * re + im * im)));
+    ph = fmax(ph, fabs(atan2(im, re) * 180.0 / 3.141592653589793 + 90.0));
+  }
+  UDSP_TEST_ASSERT(mag < 0.6 && ph < 1e-6,
+                   "the FIR: 60 Hz .. 15 kHz within %.2f dB, -90 degrees "
+                   "(%.1e off)",
+                   mag, ph);
+}
+
 int main(void) {
   printf("hilbert_test\n");
   test_quadrature();
+  test_fir();
   return udsp_test_summary();
 }

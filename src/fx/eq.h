@@ -25,7 +25,18 @@ typedef enum {
   UDSP_EQ_HIGH_SHELF,
   UDSP_EQ_HIGH_CUT_12,
   UDSP_EQ_HIGH_CUT_48,
-  UDSP_EQ_BAND_PASS, /* 12 dB an octave each side, 0 dB at its centre */
+  UDSP_EQ_BAND_PASS,    /* 12 dB an octave each side, 0 dB at its centre */
+  UDSP_EQ_BELL_MATCHED, /* the bell's shape free of the bilinear's cramp */
+  /* matched too (Ozone 11's EQ's, measured): the shelves -- RBJ's analog
+   * ones, their gain the whole --, and first-order ones: cuts at 6 dB an
+   * octave, shelves centred on hz (the geometric middle of their corners;
+   * q unused) */
+  UDSP_EQ_LOW_SHELF_MATCHED,
+  UDSP_EQ_HIGH_SHELF_MATCHED,
+  UDSP_EQ_LOW_CUT_6,
+  UDSP_EQ_HIGH_CUT_6,
+  UDSP_EQ_LOW_SHELF_6,
+  UDSP_EQ_HIGH_SHELF_6,
   UDSP_EQ_SHAPES,
 } UDSP_EQ_SHAPE;
 
@@ -47,6 +58,34 @@ typedef struct {
   unsigned ramp;
   UDSP_EQ_STAGE end[UDSP_EQ_STAGES];
 } UDSP_EQ_BAND;
+
+/* the matched bell (Vicanek's "Matched Second Order Digital Filters",
+ * 2016): the bell's analog prototype -- the poles' damping 1 / (2 q A),
+ * the zeros' A / (2 q), A = 10^(dB / 40) -- its poles mapped by the
+ * impulse invariance and its zeros chosen so the magnitude matches the
+ * prototype's at DC, at hz and at half the rate: no cramping near the top
+ * (Kilohearts' Carve EQ's bells, measured). A cut is the boost's
+ * inverse, as the bell's is. As a biquad, a[0] = 1; double, no libm (the
+ * same bits everywhere): a graphic EQ's solve reads its magnitudes. */
+void udsp_eq_bell_matched(double hz, double q, double gain_db, unsigned rate,
+                          double b[3], double a[3]);
+
+/* An analog prototype matched the same way, a section of any shape:
+ * (n[2] s^2 + n[1] s + n[0]) / (s^2 + d[1] s + d[0]), s over 2 pi hz --
+ * its poles by the impulse invariance, the numerator so the power matches
+ * the prototype's at DC, at hz and at half the rate. A biquad, a[0] = 1. */
+void udsp_eq_matched(const double n[3], const double d[2], double hz,
+                     unsigned rate, double b[3], double a[3]);
+
+/* a first-order one: k (1 + s / zero) / (1 + s / pole) in rad/s over 2 pi
+ * -- zero <= 0 none (s / pole on top for a high pass when k < 0: its
+ * magnitude only) -- as a biquad, its pole impulse-invariant, its DC and
+ * half-rate magnitudes the prototype's */
+void udsp_eq_matched1(double k, double zero_hz, double pole_hz, int high_pass,
+                      unsigned rate, double b[3], double a[3]);
+
+/* |H|^2 of a biquad at hz, from phi = sin^2(pi hz / rate) */
+double udsp_eq_biquad_power(const double b[3], const double a[3], double phi);
 
 /* zeroes the state and ends a ramp (the coefficients are left alone) */
 void udsp_eq_reset(UDSP_EQ_BAND *b);

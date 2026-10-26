@@ -15,14 +15,15 @@ contract.
 ## Layout: src/'s directories
 
 ```
-src/base/       simd.h (the vectors), fft.c (the transform): what every
+src/base/       simd.h (the vectors), fft.c (the transform), trig.c (a
+                sine in double, no libm): what every
                 other directory may use, and uses nothing itself
 src/analysis/   measuring a signal: analyze, spectrum, spectrogram,
                 loudness, r128, yin, scope, ballistics
 src/synth/      making one: pitch, osc, wtab, lfo, adsr, openv, ramp,
                 smooth, sampler
 src/fx/         changing one, in a render: svf, zdf, eq, xover, disperse,
-                line, velvet, delay, fdn, dyn, shape, gain, conv
+                line, velvet, delay, fdn, dyn, shape, gain, conv, bank, geq
 src/offline/    changing one ahead of a render, at any cost: sinc,
                 stretch, dither, irfb
 ```
@@ -209,8 +210,14 @@ shape.c     udsp_softclip: x / (1 + |x|), with makeup; a saturator's
             Distortion's Overdrive and Saturate, measured), no makeup
 gain.c      + udsp_gain_stereo, udsp_mix_add, udsp_pan_gains
 eq.c        UDSP_EQ_BAND: a parametric EQ's band, stereo -- Simper's SVF
-            with its outputs mixed into nine shapes (cuts at 12 and 48
-            dB an octave, shelves, a bell, a notch, a band pass), its curve for a
+            with its outputs mixed into sixteen shapes (cuts at 12 and 48
+            dB an octave, shelves, a bell, a notch, a band pass; then
+            matched ones -- Vicanek's, no cramping at the top, the biquad
+            read back into the SVF's section: a bell, RBJ's analog
+            shelves, first-order cuts and shelves -- udsp_eq_matched()
+            any analog second-order prototype: poles impulse-invariant,
+            the power matched at DC, the corner and half the rate), its
+            curve for a
             screen, and a ramp: g, k and the mix moving a frame at a
             time so a glide neither zippers nor leaves the stable region
 dyn.c       a float log2 / exp2 of its own (no libm); UDSP_COMP (a soft
@@ -234,7 +241,10 @@ xover.c     UDSP_XOVER: a Linkwitz-Riley crossover, up to five bands at
             ctui-daw's band-split rack); or at 12 dB
             (udsp_xover_set_lr2: one section at Q 1/2 each way, the high
             side inverted, the lower bands through low minus high --
-            LFOTool's split)
+            LFOTool's split); udsp_xover_fir: its low pass at linear
+            phase, an FIR of its magnitude sampled at zero phase (Ozone 11
+            Imager's crossover: bands of low passes' differences sum to a
+            delay)
 disperse.c  UDSP_DISPERSE: up to 128 second-order allpasses in series
             (Simper's SVF as x - 2k band), the amount fractional (the last
             stage faded in), a spread fanning their frequencies by a van
@@ -246,6 +256,12 @@ bank.c      UDSP_BANK: up to 104 band-passes side by side (1-4 Simper
             responses and noise widths; UDSP_FOLLOW their envelopes
             (|x| through an attack / release one-pole, a hold) --
             ctui-daw's vocoder
+geq.c       UDSP_GEQ: a graphic EQ's 31 matched bells a third of an
+            octave apart (Kilohearts' Carve EQ's, measured: their
+            centres, Q 2.1445), the bells' gains solved from the drawn
+            curve -- the interaction's inverse at 6 dB, then six Newton
+            steps on the cascade's own magnitudes, so it passes through
+            the curve at the centres
 line.c      UDSP_LINE: a mono delay line a power of two long, read at a
             whole or fractional delay (Catmull-Rom between four)
 velvet.c    UDSP_VELVET: a velvet-noise filter (Alary, Politis and
@@ -260,7 +276,9 @@ fdn.c       UDSP_FDN: a reverb -- eight lines through a Hadamard matrix,
             crossfaded in and fed to the lines, a tail gain (Kilohearts'
             Reverb's, measured)
 hilbert.c   UDSP_HILBERT: an analytic signal, Niemitalo's two allpass
-            chains (a frequency shifter's, a barberpole flanger's)
+            chains (a frequency shifter's, a barberpole flanger's);
+            udsp_hilbert_fir, the transformer at linear phase (a
+            Hann-windowed FIR: Ozone 11 Imager's Recover Sides)
 conv.c      UDSP_CONV_IN: uniformly partitioned convolution (overlap-save)
             -- a response's partitions' spectra, an input's delay line of
             spectra, a multiply-add of the two into an accumulator per

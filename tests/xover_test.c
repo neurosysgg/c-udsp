@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <string.h>
 
+#include "base/fft.h"
 #include "fx/xover.h"
 
 #define RATE 48000
@@ -272,6 +273,56 @@ static void test_lr2(void) {
                          "1 .. 267");
 }
 
+/* the low pass at linear phase: symmetric, unity at DC, -6.02 dB at its
+ * frequency and 1 / (1 + x^4) round it; bands of three such low passes'
+ * differences sum to the centre's impulse */
+enum { FIR_N = 32768, FIR_TAPS = 769 };
+static float fir_table[UDSP_FFT_TABLE_FLOATS(FIR_N)],
+    fir_scratch[2 * FIR_N + 2];
+
+static double fir_db(const float *h, double hz) {
+  double re = 0.0, im = 0.0;
+  for (int i = 0; i < FIR_TAPS; i++) {
+    re += h[i] * cos(6.283185307179586 * hz * i / RATE);
+    im -= h[i] * sin(6.283185307179586 * hz * i / RATE);
+  }
+  return 10.0 * log10(re * re + im * im);
+}
+
+static void test_fir(void) {
+  static float lp[3][FIR_TAPS];
+  static const double HZ[3] = {216.8, 740.8, 3943.9};
+  udsp_fft_table(fir_table, FIR_N);
+  for (int k = 0; k < 3; k++) {
+    udsp_xover_fir(lp[k], FIR_TAPS, HZ[k], RATE, FIR_N, fir_table, fir_scratch);
+  }
+  double sym = 0.0, sum = 0.0;
+  for (int i = 0; i < FIR_TAPS; i++) {
+    sym = fmax(sym, fabs(lp[1][i] - lp[1][FIR_TAPS - 1 - i]));
+    sum += lp[1][i];
+  }
+  const double at = fir_db(lp[1], 740.8), half = fir_db(lp[1], 370.4),
+               twice = fir_db(lp[1], 1481.6);
+  UDSP_TEST_ASSERT(
+      sym < 1e-7 && fabs(sum - 1) < 1e-5 && fabs(at + 6.02) < 0.01 &&
+          fabs(half + 0.527) < 0.01 && fabs(twice + 24.61) < 0.05,
+      "the low pass at 741 Hz: symmetric (%.1e), DC %.6f, %.3f dB there, "
+      "%.3f an octave under, %.2f over",
+      sym, sum, at, half, twice);
+  /* the bands: lp0, lp1 - lp0, lp2 - lp1, the impulse - lp2 */
+  double worst = 0.0;
+  for (int i = 0; i < FIR_TAPS; i++) {
+    const double b[4] = {lp[0][i], (double)lp[1][i] - lp[0][i],
+                         (double)lp[2][i] - lp[1][i],
+                         (i == FIR_TAPS / 2) - (double)lp[2][i]};
+    worst = fmax(worst, fabs(b[0] + b[1] + b[2] + b[3] - (i == FIR_TAPS / 2)));
+  }
+  UDSP_TEST_ASSERT(worst < 1e-6,
+                   "four bands sum to the centre's impulse "
+                   "(%.1e)",
+                   worst);
+}
+
 int main(void) {
   test_three_as_reference();
   printf("xover_test\n");
@@ -279,5 +330,6 @@ int main(void) {
   test_bands();
   test_one_and_alias();
   test_lr2();
+  test_fir();
   return udsp_test_summary();
 }

@@ -1,6 +1,7 @@
 #include "offline/sinc.h"
 
 #include "base/simd.h"
+#include "base/trig.h"
 
 #define ATTEN_DB 120.0
 #define PI 3.14159265358979323846
@@ -49,29 +50,6 @@ size_t udsp_sinc_floats(uint32_t src_rate, uint32_t dst_rate, uint32_t zeros) {
   return shape(&sh, src_rate, dst_rate, zeros) ? (size_t)sh.rows * sh.taps : 0;
 }
 
-/* sin(pi y) in plain double arithmetic (libm's sin may round differently
- * between libcs; this is the same bits everywhere, -ffp-contract=off) */
-static double sin_pi(double y) {
-  int64_t k = (int64_t)(y * 0.5);
-  y -= 2.0 * (double)k; /* (-2, 2) */
-  if (y > 1.0) {
-    y -= 2.0;
-  } else if (y < -1.0) {
-    y += 2.0;
-  }
-  if (y > 0.5) {
-    y = 1.0 - y;
-  } else if (y < -0.5) {
-    y = -1.0 - y;
-  }
-  double x = PI * y, x2 = x * x, term = x, s = x;
-  for (int i = 1; i <= 12; i++) {
-    term *= -x2 / (double)((2 * i) * (2 * i + 1));
-    s += term;
-  }
-  return s;
-}
-
 /* the modified Bessel function I0 by its series, a fixed number of terms
  * (z <= the Kaiser beta here, ~12.3: done long before 64) */
 static double bessel_i0(double z) {
@@ -96,7 +74,7 @@ static double tap(double f, uint32_t k, uint32_t taps, double fcut, double beta,
   double w = u <= -1.0 || u >= 1.0
                  ? (u == -1.0 || u == 1.0 ? 1.0 / i0_beta : 0.0)
                  : bessel_i0(beta * my_sqrt(1.0 - u * u)) / i0_beta;
-  double sinc = x == 0.0 ? 2.0 * fcut : sin_pi(2.0 * fcut * x) / (PI * x);
+  double sinc = x == 0.0 ? 2.0 * fcut : udsp_sin_pi(2.0 * fcut * x) / (PI * x);
   return sinc * w;
 }
 
@@ -320,7 +298,8 @@ void udsp_vsinc_init(UDSP_VSINC *k, uint32_t zeros, float *table) {
     const double u = x / zeros;
     const double w =
         u >= 1.0 ? 0.0 : bessel_i0(beta * my_sqrt(1.0 - u * u)) / i0_beta;
-    const double sinc = i == 0 ? 2.0 * fcut : sin_pi(2.0 * fcut * x) / (PI * x);
+    const double sinc =
+        i == 0 ? 2.0 * fcut : udsp_sin_pi(2.0 * fcut * x) / (PI * x);
     table[2 * i] = (float)(sinc * w);
   }
   /* each point's step to the next beside it: the read's t1 - t0, the

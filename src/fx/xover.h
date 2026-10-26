@@ -52,4 +52,17 @@ void udsp_xover_set_lr2(UDSP_XOVER *x, int bands, const float *hz,
 void udsp_xover_split(UDSP_XOVER *x, const float *in, float *const *out,
                       size_t frames);
 
+/* The Linkwitz-Riley low pass at linear phase, an FIR: its magnitude,
+ * 1 / (1 + (f / hz)^4), at zero phase, sampled on an n-point grid (n a
+ * power of two, table udsp_fft_table()'s for it, scratch 2 n + 2
+ * floats)
+ * and the taps (odd) about its middle cut out, centred on (taps - 1) / 2
+ * -- Ozone 11 Imager's crossover's magnitudes (ctui-wm's
+ * notes/vst-replace.md "Ozone 11 Imager"). Bands made of such low
+ * passes' differences (the first one, then each minus the one below, the
+ * centre's impulse minus the last) sum to that delay exactly. n wants to
+ * outlast the response: 32768 holds 20 Hz at 48 kHz to -100 dB. */
+void udsp_xover_fir(float *h, size_t taps, double hz, unsigned rate, size_t n,
+                    const float *table, float *scratch);
+
 #endif

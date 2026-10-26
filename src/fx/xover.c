@@ -2,6 +2,7 @@
 
 #include <string.h>
 
+#include "base/fft.h"
 #include "base/simd.h"
 #include "synth/osc.h"
 
@@ -297,5 +298,22 @@ void udsp_xover_split(UDSP_XOVER *x, const float *in, float *const *out,
         allpass(&x->c[s], x->ap[b][s], out[b], frames);
       }
     }
+  }
+}
+
+void udsp_xover_fir(float *h, size_t taps, double hz, unsigned rate, size_t n,
+                    const float *table, float *scratch) {
+  float *re = scratch, *im = scratch + n / 2 + 1, *out = scratch + n + 2;
+  const double step = (double)rate / (double)n / hz;
+  for (size_t k = 0; k <= n / 2; k++) {
+    const double x = (double)k * step, x2 = x * x;
+    /* the inverse's 1 / n folded in */
+    re[k] = (float)(1.0 / ((1.0 + x2 * x2) * (double)n));
+    im[k] = 0.0f;
+  }
+  udsp_fft_real_inverse(re, im, out, n, table);
+  const size_t c = (taps - 1) / 2;
+  for (size_t i = 0; i < taps; i++) {
+    h[i] = out[(i + n - c) % n];
   }
 }
