@@ -8,6 +8,7 @@
 #include "fx/dyn.h"
 
 #define RATE 48000
+#define PI 3.141592653589793
 
 static uint32_t g_rng = 1;
 static float noise(void) {
@@ -589,6 +590,126 @@ static void test_vcomp(void) {
   UDSP_TEST_ASSERT(red > 8.5f, "without it: compressed (%.3f)", (double)red);
 }
 
+/* the amplitude of a sine at hz in x[ch] over frames from start: its
+ * projection on sin and cos */
+static float tone(const float *x, int ch, int start, int frames, float hz) {
+  double s = 0.0, c = 0.0;
+  for (int i = start; i < start + frames; i++) {
+    const double w = 2.0 * PI * hz * i / RATE;
+    s += x[2 * i + ch] * sin(w);
+    c += x[2 * i + ch] * cos(w);
+  }
+  return (float)(2.0 * sqrt(s * s + c * c) / frames);
+}
+
+static void test_maxim(void) {
+  static const UDSP_MAXIM_FIT fit = {1.0f, 0.0f,   9,    7.0f,
+                                     1.2f, 500.0f, 0.9f, 0.45f};
+  static UDSP_MAXIM m;
+  static float x[2 * RATE], y[2 * RATE];
+  enum { LATE = 2 * 9 - 1 };
+
+  /* under the ceiling: the input times the gain, 2 n - 1 frames late,
+   * the bands summing back to it */
+  udsp_maxim_reset(&m);
+  udsp_maxim_set(&m, &fit, 6.0f, 0.0f, RATE);
+  for (int i = 0; i < 2 * 4000; i++) {
+    x[i] = 0.2f * noise();
+  }
+  memcpy(y, x, 2 * 4000 * sizeof(float));
+  udsp_maxim_stereo(&m, y, 4000);
+  float worst = 0.0f;
+  const float g = udsp_gain_from_db(6.0f);
+  for (int i = 0; i < 2 * (4000 - LATE); i++) {
+    const float e = fabsf(y[i + 2 * LATE] - g * x[i]);
+    worst = e > worst ? e : worst;
+  }
+  UDSP_TEST_ASSERT(worst < 1e-6f,
+                   "under the ceiling: x times the gain, "
+                   "%d late (%g off)",
+                   LATE, (double)worst);
+
+  /* loud noise in bursts, a block at a time: nothing past the ceiling */
+  udsp_maxim_reset(&m);
+  udsp_maxim_set(&m, &fit, 12.0f, -0.1f, RATE);
+  for (int i = 0; i < 2 * RATE; i++) {
+    y[i] = noise() * ((i / 4000) % 3 == 1 ? 4.0f : 0.5f);
+  }
+  for (int i = 0; i < RATE; i += 333) {
+    udsp_maxim_stereo(&m, y + 2 * i, i + 333 <= RATE ? 333 : RATE - i);
+  }
+  const float ceiling = udsp_gain_from_db(-0.1f);
+  worst = 0.0f;
+  for (int i = 0; i < 2 * RATE; i++) {
+    worst = fabsf(y[i]) > worst ? fabsf(y[i]) : worst;
+  }
+  UDSP_TEST_ASSERT(worst <= ceiling && worst > 0.97f * ceiling,
+                   "loud noise held under the ceiling (%.5f of %.5f)",
+                   (double)worst, (double)ceiling);
+  UDSP_TEST_ASSERT(m.reduction > 1.0f, "  ... the reduction metered (%g dB)",
+                   (double)m.reduction);
+
+  /* a loud 100 Hz under a quiet 5 kHz: the top's share of the reduction
+   * its weight's (weighted as the bottom, it goes down further) */
+  for (int i = 0; i < RATE / 2; i++) {
+    x[2 * i] = x[2 * i + 1] = 0.9f * (float)sin(2.0 * PI * 100.0 * i / RATE) +
+                              0.02f * (float)sin(2.0 * PI * 5000.0 * i / RATE);
+  }
+  float hi[2];
+  for (int k = 0; k < 2; k++) {
+    UDSP_MAXIM_FIT f = fit;
+    f.weight_hi = k ? f.weight_lo : f.weight_hi;
+    udsp_maxim_reset(&m);
+    udsp_maxim_set(&m, &f, 6.0f, 0.0f, RATE);
+    memcpy(y, x, RATE * sizeof(float));
+    udsp_maxim_stereo(&m, y, RATE / 2);
+    hi[k] = udsp_db_from_gain(tone(y, 0, 4800, 19200, 5000.0f) /
+                              (g * tone(x, 0, 4800, 19200, 5000.0f)));
+  }
+  UDSP_TEST_ASSERT(hi[0] > hi[1] + 1.0f,
+                   "the top weighted %.2f: %.2f dB, as the bottom (%.2f): "
+                   "%.2f",
+                   (double)fit.weight_hi, (double)hi[0], (double)fit.weight_lo,
+                   (double)hi[1]);
+
+  /* a loud left, a quiet right: unlinked the right goes through, linked
+   * it follows the left down */
+  for (int link = 0; link < 2; link++) {
+    UDSP_MAXIM_FIT f = fit;
+    f.link = (float)link;
+    udsp_maxim_reset(&m);
+    udsp_maxim_set(&m, &f, 6.0f, 0.0f, RATE);
+    for (int i = 0; i < RATE / 4; i++) {
+      const float s = (float)sin(2.0 * PI * 1000.0 * i / RATE);
+      y[2 * i] = 0.9f * s;
+      y[2 * i + 1] = 0.1f * s;
+    }
+    udsp_maxim_stereo(&m, y, RATE / 4);
+    const float r =
+        udsp_db_from_gain(tone(y, 1, 4800, 4800, 1000.0f) / (0.1f * g));
+    UDSP_TEST_ASSERT(link ? r < -1.0f : fabsf(r) < 0.05f,
+                     "the quiet channel, link %d: %.2f dB", link, (double)r);
+  }
+
+  /* idle as silence: the release where silence would have left it (but
+   * for the window's few frames of the last needs, a run's) */
+  static UDSP_MAXIM a, b;
+  udsp_maxim_reset(&a);
+  udsp_maxim_set(&a, &fit, 12.0f, 0.0f, RATE);
+  for (int i = 0; i < 2 * 2000; i++) {
+    y[i] = noise();
+  }
+  udsp_maxim_stereo(&a, y, 2000);
+  b = a;
+  memset(y, 0, 2 * 1000 * sizeof(float));
+  udsp_maxim_stereo(&a, y, 1000);
+  udsp_maxim_idle(&b, 1000);
+  UDSP_TEST_ASSERT(fabsf(a.reduction - b.reduction) < 0.05f &&
+                       b.reduction > 0.1f,
+                   "idle: the release as silence's (%g / %g dB)",
+                   (double)a.reduction, (double)b.reduction);
+}
+
 int main(void) {
   printf("dyn_test\n");
   test_log_exp();
@@ -601,5 +722,6 @@ int main(void) {
   test_udcomp_slopes();
   test_udcomp_gains();
   test_vcomp();
+  test_maxim();
   return udsp_test_summary();
 }

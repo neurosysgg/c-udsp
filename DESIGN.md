@@ -245,7 +245,14 @@ dyn.c       a float log2 / exp2 of its own (no libm); UDSP_COMP (a soft
             above it, leaking always, so a steady level reads short of
             itself -- its slope ratio - 1, and an auto gain from two
             meters (the input's and the output's mean |x|); the one
-            compressor here that applies its own gain: the loop needs it
+            compressor here that applies its own gain: the loop needs it;
+            UDSP_MAXIM, Ozone 11's Maximizer in IRC IV as a model fitted
+            to it (not its algorithm): a lookahead limiter in dB a
+            channel each, partly linked, its reduction weighted by band
+            (a first-order low pass run twice, the rest the high band;
+            the lows turned down about twice as far) and a tanh soft
+            clip under the ceiling -- its constants the caller's
+            (UDSP_MAXIM_FIT), its state fixed-size
 xover.c     UDSP_XOVER: a Linkwitz-Riley crossover, up to five bands at
             24 dB an octave (two Butterworth sections of Simper's SVF each
             way), the lower bands through the higher splits' allpasses so

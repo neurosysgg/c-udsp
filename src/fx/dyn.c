@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "base/simd.h"
+#include "fx/shape.h"
 #include "synth/pitch.h"
 
 typedef union {
@@ -810,4 +811,115 @@ void udsp_vcomp_stereo(UDSP_VCOMP *c, UDSP_EQ_BAND *const *key, int keys,
       f[1] *= makeup;
     }
   }
+}
+
+/* --- the maximizer ----------------------------------------------------- */
+
+void udsp_maxim_reset(UDSP_MAXIM *m) {
+  m->t = 0;
+  memset(m->need, 0, sizeof(m->need));
+  memset(m->held, 0, sizeof(m->held));
+  memset(m->delay, 0, sizeof(m->delay));
+  m->env[0] = m->env[1] = 0.0f;
+  udsp_eq_reset(&m->lp[0]);
+  udsp_eq_reset(&m->lp[1]);
+  m->reduction = 0.0f;
+}
+
+void udsp_maxim_set(UDSP_MAXIM *m, const UDSP_MAXIM_FIT *fit, float gain_db,
+                    float ceiling_db, unsigned rate) {
+  uint32_t n = fit->lookahead;
+  n = n < 1 ? 1 : (n > UDSP_MAXIM_CAP ? UDSP_MAXIM_CAP : n);
+  m->gain = udsp_gain_from_db(gain_db);
+  m->ceiling = udsp_gain_from_db(ceiling_db);
+  m->aim = udsp_gain_from_db(ceiling_db + fit->over_db);
+  m->knee = udsp_gain_from_db(-(fit->knee_db > 0.01f ? fit->knee_db : 0.01f));
+  m->link = fit->link < 0.0f ? 0.0f : (fit->link > 1.0f ? 1.0f : fit->link);
+  m->rel = pole(fit->release_ms, rate);
+  m->wlo = fit->weight_lo;
+  m->whi = fit->weight_hi;
+  for (int k = 0; k < 2; k++) {
+    udsp_eq_set(&m->lp[k], UDSP_EQ_HIGH_CUT_6, fit->crossover_hz, 0.7071f, 0.0f,
+                rate);
+  }
+  if (n != m->n) {
+    m->n = n;
+    udsp_maxim_reset(m);
+  }
+}
+
+/* the soft clip: x up to k c, past it c (k + (1 - k) tanh((|x| / c - k) /
+ * (1 - k))) -- slope 1 at the knee, c in the limit */
+static float maxim_clip(float x, float c, float k) {
+  const float a = fabsf(x);
+  if (a <= c * k) {
+    return x;
+  }
+  const float y = c * (k + (1.0f - k) * udsp_shape1(UDSP_SHAPE_TANH,
+                                                    (a / c - k) / (1.0f - k)));
+  return x < 0.0f ? -y : y;
+}
+
+void udsp_maxim_stereo(UDSP_MAXIM *m, float *io, size_t frames) {
+  const uint32_t n = m->n, d = 2 * n - 1;
+  const float aim_db = udsp_db_from_gain(m->aim);
+  for (size_t i = 0; i < frames; i++) {
+    float *f = io + 2 * i;
+    const uint32_t slot = (uint32_t)(m->t % n), back = (uint32_t)(m->t % d);
+    /* each channel's need to come down to the aim, mixed toward the
+     * louder's */
+    float need[2];
+    for (int c = 0; c < 2; c++) {
+      const float a = fabsf(f[c]) * m->gain;
+      need[c] = a > m->aim ? aim_db - udsp_db_from_gain(a) : 0.0f;
+    }
+    const float lo = need[0] < need[1] ? need[0] : need[1];
+    float g[2];
+    for (int c = 0; c < 2; c++) {
+      m->need[slot][c] = (1.0f - m->link) * need[c] + m->link * lo;
+      /* the minimum over the window held, let go at the release's pole */
+      float v = 0.0f;
+      for (uint32_t j = 0; j < n; j++) {
+        v = m->need[j][c] < v ? m->need[j][c] : v;
+      }
+      float e = m->env[c];
+      e = v < e ? v : m->rel * e + (1.0f - m->rel) * v;
+      m->env[c] = e;
+      m->held[slot][c] = e;
+      /* averaged over the window: summed afresh (no drift) */
+      float s = 0.0f;
+      for (uint32_t j = 0; j < n; j++) {
+        s += m->held[j][c];
+      }
+      g[c] = s / (float)n;
+    }
+    /* the frame 2 n - 1 back out, split and turned down by band */
+    float x[2] = {m->delay[back][0] * m->gain, m->delay[back][1] * m->gain};
+    m->delay[back][0] = f[0];
+    m->delay[back][1] = f[1];
+    float low[2] = {x[0], x[1]};
+    udsp_eq_stereo(&m->lp[0], low, 1);
+    udsp_eq_stereo(&m->lp[1], low, 1);
+    for (int c = 0; c < 2; c++) {
+      const float y = low[c] * udsp_gain_from_db(m->wlo * g[c]) +
+                      (x[c] - low[c]) * udsp_gain_from_db(m->whi * g[c]);
+      f[c] = maxim_clip(y, m->ceiling, m->knee);
+    }
+    m->reduction = -(g[0] < g[1] ? g[0] : g[1]);
+    m->t++;
+  }
+}
+
+void udsp_maxim_idle(UDSP_MAXIM *m, size_t frames) {
+  for (int c = 0; c < 2; c++) {
+    m->env[c] *= pole_pow(m->rel, frames);
+    for (uint32_t j = 0; j < UDSP_MAXIM_CAP; j++) {
+      m->need[j][c] = 0.0f;
+      m->held[j][c] = m->env[c];
+    }
+  }
+  memset(m->delay, 0, sizeof(m->delay));
+  udsp_eq_reset(&m->lp[0]);
+  udsp_eq_reset(&m->lp[1]);
+  m->reduction = -m->env[0] > -m->env[1] ? -m->env[0] : -m->env[1];
 }

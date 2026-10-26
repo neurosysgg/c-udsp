@@ -289,4 +289,56 @@ void udsp_vcomp_idle(UDSP_VCOMP *c, size_t frames);
  * (dB) -- the output's, as the detector reads it */
 float udsp_vcomp_curve(const UDSP_VCOMP *c, float detector_db);
 
+/* --- the maximizer ------------------------------------------------------
+ * iZotope Ozone 11's Maximizer in IRC IV (measured, ctui-wm's
+ * notes/vst-replace.md "Ozone 11's Maximizer, measured and built"; a
+ * model fitted to it, not its algorithm): a lookahead limiter in dB a
+ * channel each -- each frame's need to reach the ceiling + over dB,
+ * mixed by link toward the louder channel's --, the need's minimum over
+ * the n frames to come held and let go at the release's pole (in dB),
+ * averaged over the n frames before; that reduction applied to a two-band
+ * split of the signal -- below the crossover (a first-order low pass run
+ * twice; the high band the rest) weight_lo of it, above weight_hi -- and
+ * whatever still passes caught by a soft clip, tanh's shape from knee dB
+ * under the ceiling. The input gain first. Its delay 2 n - 1 frames: a
+ * host's latency. */
+
+#define UDSP_MAXIM_CAP 64 /* the most lookahead frames */
+
+typedef struct {
+  float over_db;      /* the limiter's aim over the ceiling */
+  float link;         /* 0: each channel its own, 1: the louder decides */
+  uint32_t lookahead; /* frames, 1..UDSP_MAXIM_CAP */
+  float release_ms;
+  float knee_db; /* the soft clip's start under the ceiling (> 0) */
+  float crossover_hz, weight_lo, weight_hi;
+} UDSP_MAXIM_FIT;
+
+typedef struct {
+  float gain, ceiling, aim, knee; /* linear; knee the clip's start / ceiling */
+  float link, rel, wlo, whi;
+  uint32_t n;
+  UDSP_EQ_BAND lp[2];
+  uint64_t t;                         /* frames in */
+  float need[UDSP_MAXIM_CAP][2];      /* the last n needs (dB) */
+  float held[UDSP_MAXIM_CAP][2];      /* the last n held (dB) */
+  float env[2];                       /* held now */
+  float delay[2 * UDSP_MAXIM_CAP][2]; /* the input, 2 n - 1 back */
+  float reduction;                    /* dB (>= 0), the last frame's louder */
+} UDSP_MAXIM;
+
+void udsp_maxim_reset(UDSP_MAXIM *m);
+
+/* the fit, the input gain and the ceiling in dB; a lookahead change
+ * resets (a latency change: a host's to make between plays) */
+void udsp_maxim_set(UDSP_MAXIM *m, const UDSP_MAXIM_FIT *fit, float gain_db,
+                    float ceiling_db, unsigned rate);
+
+/* frames interleaved stereo frames in place, 2 n - 1 frames late */
+void udsp_maxim_stereo(UDSP_MAXIM *m, float *io, size_t frames);
+
+/* frames of silence gone by: the release as silence would have it, the
+ * delay and the filters emptied */
+void udsp_maxim_idle(UDSP_MAXIM *m, size_t frames);
+
 #endif
