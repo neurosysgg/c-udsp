@@ -274,6 +274,101 @@ static void test_limiter(void) {
   UDSP_TEST_ASSERT(x[2 * 999] == 0.5f, "untouched before the lookahead");
 }
 
+/* LEVEL (Kilohearts' Limiter, measured): a DC burst at 5x the ceiling,
+ * then lo; the level over the ceiling (input / output) one release after
+ * the burst */
+static float level_after(float lo, uint32_t block) {
+  enum { CAP = 480, N = 2 * RATE / 10 };
+  static float mem[UDSP_LIMITER_FLOATS(CAP)];
+  static float x[2 * N];
+  UDSP_LIMITER l;
+  udsp_limiter_init(&l, mem, CAP);
+  udsp_limiter_set_law(&l, UDSP_LIMITER_LEVEL);
+  udsp_limiter_set(&l, RATE / 500, 0.1f, 23.0f, RATE);
+  for (int i = 0; i < N; i++) {
+    x[2 * i] = x[2 * i + 1] = i >= 2000 && i < 4000 ? 0.5f : lo;
+  }
+  for (uint32_t i = 0; i < N; i += block) {
+    udsp_limiter_stereo(&l, x + 2 * i, i + block <= N ? block : N - i);
+  }
+  const uint32_t at = 4000 + udsp_limiter_latency(&l) + 23 * RATE / 1000;
+  return lo / x[2 * at];
+}
+
+static void test_limiter_level(void) {
+  enum { CAP = 480 };
+  static float mem[UDSP_LIMITER_FLOATS(CAP)];
+  UDSP_LIMITER l;
+  udsp_limiter_init(&l, mem, CAP);
+  udsp_limiter_set_law(&l, UDSP_LIMITER_LEVEL);
+  udsp_limiter_set(&l, 96, 1.0f, 50.0f, RATE);
+  UDSP_TEST_ASSERT(udsp_limiter_latency(&l) == 95,
+                   "a lookahead of 96: 95 frames late");
+  static float x[2 * RATE], y[2 * RATE];
+  for (int i = 0; i < 2000; i++) {
+    x[i] = 0.25f * noise();
+  }
+  memcpy(y, x, 2000 * sizeof(float));
+  udsp_limiter_stereo(&l, y, 1000);
+  int late = 1;
+  for (int i = 0; i < 905; i++) {
+    late &= y[2 * (i + 95)] == x[2 * i] && y[2 * (i + 95) + 1] == x[2 * i + 1];
+  }
+  UDSP_TEST_ASSERT(late, "under the ceiling: the input, 95 frames late, to "
+                         "the bit");
+
+  for (int i = 0; i < 2 * RATE; i++) {
+    x[i] = noise() * ((i / 4000) % 3 == 1 ? 8.0f : 1.0f);
+  }
+  uint64_t h[2] = {0, 0};
+  const uint32_t blocks[2] = {333, 7};
+  float worst = 0.0f;
+  for (int k = 0; k < 2; k++) {
+    udsp_limiter_init(&l, mem, CAP);
+    udsp_limiter_set_law(&l, UDSP_LIMITER_LEVEL);
+    udsp_limiter_set(&l, 96, 0.5f, 20.0f, RATE);
+    memcpy(y, x, sizeof(x));
+    for (uint32_t i = 0; i < RATE; i += blocks[k]) {
+      udsp_limiter_stereo(&l, y + 2 * i,
+                          i + blocks[k] <= RATE ? blocks[k] : RATE - i);
+    }
+    for (int i = 0; i < 2 * RATE; i++) {
+      worst = fabsf(y[i]) > worst ? fabsf(y[i]) : worst;
+      uint32_t b;
+      memcpy(&b, &y[i], sizeof b);
+      h[k] = (h[k] ^ b) * 1099511628211ull;
+    }
+  }
+  UDSP_TEST_ASSERT(worst <= 0.5f * (1.0f + 1e-6f) && worst > 0.49f,
+                   "no sample past the ceiling (%.7f of 0.5)", (double)worst);
+  UDSP_TEST_ASSERT(h[0] == h[1], "blocks of 333 and 7: the same bits");
+
+  /* a lone peak at 5x: brought up to over the 2 ms before it, halfway
+   * (3x: the plugin's 3.000) 48 frames before */
+  udsp_limiter_init(&l, mem, CAP);
+  udsp_limiter_set_law(&l, UDSP_LIMITER_LEVEL);
+  udsp_limiter_set(&l, 96, 0.1f, 23.0f, RATE);
+  for (int i = 0; i < 2000; i++) {
+    x[2 * i] = x[2 * i + 1] = i == 1000 ? 0.5f : 0.01f;
+  }
+  udsp_limiter_stereo(&l, x, 2000);
+  const float mid = 0.01f / x[2 * (1000 - 48 + 95)];
+  const float top = 0.5f / x[2 * (1000 + 95)];
+  UDSP_TEST_ASSERT(fabsf(mid - 3.0f) < 0.05f && fabsf(top - 5.0f) < 1e-4f &&
+                       x[2 * (1000 - 97 + 95)] == 0.01f,
+                   "a lone peak: 3x 48 frames before (%.3f), 5x at it, "
+                   "untouched 97 before",
+                   (double)mid);
+
+  /* the plugin's: 5x released toward 2x halves its distance in a release
+   * (3.5), toward the ceiling likewise (3) */
+  const float a = level_after(0.2f, 256), b = level_after(0.01f, 256);
+  UDSP_TEST_ASSERT(fabsf(a - 3.5f) < 0.01f && fabsf(b - 3.0f) < 0.01f,
+                   "one release after: %.3f toward the input's 2 (3.5), %.3f "
+                   "toward the ceiling (3)",
+                   (double)a, (double)b);
+}
+
 /* the up / down compressor's settled gain on a steady key at level dB */
 static float ud_settled(UDSP_UDCOMP *c, float level_db) {
   static float key[2 * RATE], gain[RATE];
@@ -717,6 +812,7 @@ int main(void) {
   test_comp_second();
   test_gate();
   test_limiter();
+  test_limiter_level();
   test_udcomp();
   test_udcomp_power();
   test_udcomp_slopes();

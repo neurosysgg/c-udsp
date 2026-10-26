@@ -238,7 +238,10 @@ dyn.c       a float log2 / exp2 of its own (no libm); UDSP_COMP (a soft
             holding it) -- and UDSP_LIMITER, a
             brickwall over a lookahead (the needed gain held at its
             window's minimum, released, averaged over the window: no
-            sample past the ceiling); UDSP_VCOMP, Ozone 11's Vintage
+            sample past the ceiling; or Kilohearts' Limiter's law,
+            measured -- the level over the ceiling held, a triangle
+            over it for the attack, released toward the held level at
+            a half-life, a frame less late); UDSP_VCOMP, Ozone 11's Vintage
             Compressor, measured: a feedback design (the detector reads
             the output, through the caller's EQ bands) with an analog
             peak detector -- charged at the attack while the output is

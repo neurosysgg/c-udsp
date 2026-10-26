@@ -649,7 +649,8 @@ void udsp_gate_gain(UDSP_GATE *g, const float *key, float *gain,
 /* --- the limiter -------------------------------------------------------
  * mem: the delay (2 cap), the window of held gains (cap), the minimum's
  * queue as values and the frames they came in (cap + 2 each: n + 1 at
- * most, and a ring tells full from empty by one slot more) */
+ * most, and a ring tells full from empty by one slot more), LEVEL's
+ * second box (cap) */
 
 static float *lim_delay(UDSP_LIMITER *l) { return l->mem; }
 static float *lim_window(UDSP_LIMITER *l) { return l->mem + 2 * l->cap; }
@@ -657,15 +658,25 @@ static float *lim_qv(UDSP_LIMITER *l) { return l->mem + 3 * l->cap; }
 static uint32_t *lim_qt(UDSP_LIMITER *l) {
   return (uint32_t *)(void *)(l->mem + 4 * l->cap + 2);
 }
+static float *lim_window2(UDSP_LIMITER *l) { return l->mem + 5 * l->cap + 4; }
+
+/* LEVEL's boxes: a triangle a + b - 1 = n frames long */
+static uint32_t lim_box_a(const UDSP_LIMITER *l) {
+  return l->n / 2 ? l->n / 2 : 1;
+}
+static uint32_t lim_box_b(const UDSP_LIMITER *l) {
+  return l->n - lim_box_a(l) + 1;
+}
 
 static void lim_clear(UDSP_LIMITER *l) {
   memset(l->mem, 0, UDSP_LIMITER_FLOATS(l->cap) * sizeof(float));
-  float *w = lim_window(l);
+  float *w = lim_window(l), *w2 = lim_window2(l);
   for (uint32_t i = 0; i < l->n; i++) {
-    w[i] = 1.0f;
+    w[i] = w2[i] = 1.0f;
   }
   l->env = 1.0f;
-  l->sum = l->n;
+  l->sum = l->law == UDSP_LIMITER_LEVEL ? lim_box_a(l) : l->n;
+  l->sum2 = lim_box_b(l);
   l->t = 0;
   l->head = l->tail = 0;
   l->reduction = 1.0f;
@@ -677,7 +688,20 @@ void udsp_limiter_init(UDSP_LIMITER *l, float *mem, uint32_t cap) {
   l->n = l->cap;
   l->ceiling = 1.0f;
   l->rel = 0.0f;
+  l->half = 0.0f;
+  l->law = UDSP_LIMITER_GAIN;
   lim_clear(l);
+}
+
+void udsp_limiter_set_law(UDSP_LIMITER *l, UDSP_LIMITER_LAW law) {
+  if (law != l->law) {
+    l->law = law;
+    lim_clear(l);
+  }
+}
+
+uint32_t udsp_limiter_latency(const UDSP_LIMITER *l) {
+  return l->law == UDSP_LIMITER_LEVEL ? l->n - 1 : l->n;
 }
 
 void udsp_limiter_set(UDSP_LIMITER *l, uint32_t lookahead, float ceiling,
@@ -686,13 +710,69 @@ void udsp_limiter_set(UDSP_LIMITER *l, uint32_t lookahead, float ceiling,
   l->ceiling = ceiling;
   /* the recovery's step a frame: 1 - exp(-1 / frames) */
   l->rel = 1.0f - pole(release_ms, rate);
+  const double frames = (double)release_ms * rate / 1000.0;
+  l->half = frames <= 0.0 ? 0.0f : (float)udsp_exp2(-1.0 / frames);
   if (lookahead != l->n) {
     l->n = lookahead;
     lim_clear(l);
   }
 }
 
+/* LEVEL: the level over the ceiling held over the n frames up to this
+ * one (h: the frames to come as the output hears them), its triangle for
+ * the attack -- the frames before a peak brought up to it, every one of
+ * the n averaged covering it -- and the release toward h; the larger. The
+ * delay n - 1 (n >= 2) */
+static void lim_level(UDSP_LIMITER *l, float *io, size_t frames) {
+  float *d = lim_delay(l), *w = lim_window(l), *w2 = lim_window2(l);
+  float *qv = lim_qv(l);
+  uint32_t *qt = lim_qt(l);
+  const uint32_t n = l->n, qcap = l->cap + 2, dn = n - 1;
+  const uint32_t a = lim_box_a(l), b = lim_box_b(l);
+  const float k = l->half;
+  float g = l->reduction;
+  for (size_t i = 0; i < frames; i++) {
+    const float x0 = io[2 * i], x1 = io[2 * i + 1];
+    const float ax = x0 < 0.0f ? -x0 : x0, bx = x1 < 0.0f ? -x1 : x1;
+    const float p = ax > bx ? ax : bx;
+    const float r = p > l->ceiling ? l->ceiling / p : 1.0f;
+    const uint32_t t = (uint32_t)l->t;
+    while (l->tail != l->head && t - qt[l->head] >= n) {
+      l->head = (l->head + 1) % qcap;
+    }
+    while (l->tail != l->head && qv[(l->tail + qcap - 1) % qcap] >= r) {
+      l->tail = (l->tail + qcap - 1) % qcap;
+    }
+    qv[l->tail] = r;
+    qt[l->tail] = t;
+    l->tail = (l->tail + 1) % qcap;
+    const float h = 1.0f / qv[l->head];
+    const uint32_t sa = t % a, sb = t % b;
+    l->sum += (double)h - (double)w[sa];
+    w[sa] = h;
+    const float m1 = (float)(l->sum / a);
+    l->sum2 += (double)m1 - (double)w2[sb];
+    w2[sb] = m1;
+    const float s = (float)(l->sum2 / b);
+    float v = h + (l->env - h) * k;
+    v = v > s ? v : s;
+    l->env = v;
+    g = v > 1.0f ? 1.0f / v : 1.0f;
+    const uint32_t slot = t % dn;
+    io[2 * i] = d[2 * slot] * g;
+    io[2 * i + 1] = d[2 * slot + 1] * g;
+    d[2 * slot] = x0;
+    d[2 * slot + 1] = x1;
+    l->t++;
+  }
+  l->reduction = g;
+}
+
 void udsp_limiter_stereo(UDSP_LIMITER *l, float *io, size_t frames) {
+  if (l->law == UDSP_LIMITER_LEVEL && l->n >= 2) {
+    lim_level(l, io, frames);
+    return;
+  }
   float *d = lim_delay(l), *w = lim_window(l), *qv = lim_qv(l);
   uint32_t *qt = lim_qt(l);
   const uint32_t n = l->n, qcap = l->cap + 2;

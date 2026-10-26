@@ -209,23 +209,46 @@ void udsp_gate_gain(UDSP_GATE *g, const float *key, float *gain, size_t frames);
  * gain smoothly by the time the delayed peak gets there, and no sample
  * out passes the ceiling. Its memory is the caller's:
  * UDSP_LIMITER_FLOATS(cap) floats for a lookahead of up to cap frames.
- * Its delay is the lookahead: a host's latency. */
+ * Its delay is the lookahead: a host's latency.
+ *
+ * Its release law:
+ * - GAIN: the gain back toward 1 at the release's pole, one window's box
+ *   average (the default);
+ * - LEVEL: Kilohearts' Limiter's (measured, ctui-wm's
+ *   notes/vst-replace.md "The Kilohearts leftovers"): the level over the
+ *   ceiling (1 / the gain) held over the n frames up to now -- the
+ *   output's next n --, a triangle n frames long over that (two boxes)
+ *   bringing the frames before a peak up to it, and a release toward the
+ *   held level -- the input's own, not the ceiling -- its distance halved
+ *   each release; the larger of the two. The delay n - 1 (n 2 ms:
+ *   Kilohearts' latency at every rate). */
 
-#define UDSP_LIMITER_FLOATS(cap) ((size_t)(cap) * 5 + 5)
+#define UDSP_LIMITER_FLOATS(cap) ((size_t)(cap) * 6 + 5)
+
+typedef enum {
+  UDSP_LIMITER_GAIN,
+  UDSP_LIMITER_LEVEL,
+} UDSP_LIMITER_LAW;
 
 typedef struct {
   float *mem;
   uint32_t cap, n; /* the most frames, and the lookahead now (1..cap) */
   float ceiling, rel;
-  float env;           /* the held gain after its release */
-  double sum;          /* the window's sum of env */
+  float half; /* LEVEL's distance left a frame, 2^(-1 / frames) */
+  UDSP_LIMITER_LAW law;
+  float env;           /* the held gain after its release (LEVEL: the level) */
+  double sum, sum2;    /* the windows' sums (LEVEL: two boxes) */
   uint64_t t;          /* frames in */
   uint32_t head, tail; /* the minimum's queue */
   float reduction;     /* the last frame's gain applied (a meter's) */
 } UDSP_LIMITER;
 
-/* takes mem (UDSP_LIMITER_FLOATS(cap)) and clears it */
+/* takes mem (UDSP_LIMITER_FLOATS(cap)) and clears it; GAIN */
 void udsp_limiter_init(UDSP_LIMITER *l, float *mem, uint32_t cap);
+
+/* the release law (a change clears the memory, as the lookahead's: the
+ * delay changes with it) */
+void udsp_limiter_set_law(UDSP_LIMITER *l, UDSP_LIMITER_LAW law);
 
 /* the lookahead in frames (1..cap; a change clears the memory -- it is
  * a latency change, a host's to make between plays), the ceiling
@@ -234,8 +257,11 @@ void udsp_limiter_set(UDSP_LIMITER *l, uint32_t lookahead, float ceiling,
                       float release_ms, unsigned rate);
 
 /* in place, interleaved stereo: the output lags the input by the
- * lookahead */
+ * lookahead (LEVEL: by one frame less) */
 void udsp_limiter_stereo(UDSP_LIMITER *l, float *io, size_t frames);
+
+/* the output's delay behind the input, frames */
+uint32_t udsp_limiter_latency(const UDSP_LIMITER *l);
 
 /* --- the vintage compressor --------------------------------------------
  * iZotope Ozone 11's Vintage Compressor (measured): a feedback design --
