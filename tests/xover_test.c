@@ -303,12 +303,26 @@ static void test_fir(void) {
   }
   const double at = fir_db(lp[1], 740.8), half = fir_db(lp[1], 370.4),
                twice = fir_db(lp[1], 1481.6);
+  /* the bilinear Butterworth's magnitude squared: 1 / (1 + x^4) */
+#define BW(f)                                                                  \
+  (-20.0 * log10(1.0 + pow(tan(3.141592653589793 * (f) / RATE) /               \
+                               tan(3.141592653589793 * 740.8 / RATE),          \
+                           4.0)))
   UDSP_TEST_ASSERT(
       sym < 1e-7 && fabs(sum - 1) < 1e-5 && fabs(at + 6.02) < 0.01 &&
-          fabs(half + 0.527) < 0.01 && fabs(twice + 24.61) < 0.05,
-      "the low pass at 741 Hz: symmetric (%.1e), DC %.6f, %.3f dB there, "
-      "%.3f an octave under, %.2f over",
+          fabs(half - BW(370.4)) < 0.01 && fabs(twice - BW(1481.6)) < 0.01,
+      "the low pass at 741 Hz: symmetric (%.1e), DC %.6f, %.3f dB "
+      "there, %.3f an octave under, %.2f over",
       sym, sum, at, half, twice);
+#undef BW
+  /* near the top the bilinear's cramp: a split at 10 kHz -55 dB at 20
+   * (tan's ratio 4.886), where the analog law gives -24.6 */
+  static float top[FIR_TAPS];
+  udsp_xover_fir(top, FIR_TAPS, 9965.0, RATE, FIR_N, fir_table, fir_scratch);
+  const double t20 = fir_db(top, 20000);
+  UDSP_TEST_ASSERT(t20 < -54.5 && t20 > -55.7,
+                   "a split at 10 kHz: %.1f dB at 20 kHz (the analog's -24.6)",
+                   t20);
   /* the bands: lp0, lp1 - lp0, lp2 - lp1, the impulse - lp2 */
   double worst = 0.0;
   for (int i = 0; i < FIR_TAPS; i++) {
