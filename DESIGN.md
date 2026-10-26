@@ -23,7 +23,8 @@ src/analysis/   measuring a signal: analyze, spectrum, spectrogram,
 src/synth/      making one: pitch, osc, wtab, lfo, adsr, openv, ramp,
                 smooth, sampler
 src/fx/         changing one, in a render: svf, zdf, eq, xover, disperse,
-                line, velvet, delay, fdn, dyn, shape, gain, conv, bank, geq
+                line, velvet, delay, fdn, dyn, shape, gain, conv, bank, geq,
+                os, sos
 src/offline/    changing one ahead of a render, at any cost: sinc,
                 stretch, dither, irfb
 ```
@@ -209,6 +210,13 @@ shape.c     udsp_softclip: x / (1 + |x|), with makeup; a saturator's
             sign(x) sqrt|x| --, tanh and quintic -- Kilohearts'
             Distortion's Overdrive and Saturate, measured), no makeup
 gain.c      + udsp_gain_stereo, udsp_mix_add, udsp_pan_gains
+os.c        UDSP_OS: oversampling by 2 or 4, stereo -- de Soras' hiir
+            polyphase IIR halfbands (allpass pairs), their coefficients
+            designed offline and fixed (flat to 21 kHz at 48 kHz, -92 /
+            -82 dB beyond): a curve run at 4x aliases far less; up and
+            down an allpass, 4.6 frames late at 4x
+sos.c       UDSP_SOS: a fixed cascade of biquads, stereo -- a filter
+            fitted offline (a plugin's, measured), the caller's sections
 eq.c        UDSP_EQ_BAND: a parametric EQ's band, stereo -- Simper's SVF
             with its outputs mixed into sixteen shapes (cuts at 12 and 48
             dB an octave, shelves, a bell, a notch, a band pass; then
