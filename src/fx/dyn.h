@@ -42,17 +42,55 @@ typedef struct {
   int rms;
   float red; /* the smoothed reduction, dB (>= 0) */
   float ms;  /* RMS's mean square */
+  /* appended (iZotope Ozone 11's Dynamics, measured): a second knee --
+   * its slope's change past its threshold, knee wide, smoothed apart and
+   * let go through a tail -- a one-pole after the first's smoother (post
+   * 0: none), and the peak's window and hold */
+  int second;
+  float thr2, slope2, knee2;
+  float att2, rel2, tail; /* the second's poles */
+  float r2, t2;           /* its smoothed reduction, after the tail */
+  float post, red2;
+  float hold, held;  /* the peak's hold (its release's pole; 0: none) */
+  uint32_t block, n; /* the window's block (frames; 0: none), its fill */
+  float cur, prev;   /* this block's peak, the last one's */
 } UDSP_COMP;
 
 void udsp_comp_reset(UDSP_COMP *c);
 
 /* threshold and knee in dB, ratio >= 1 (1e9 or more: a limiter's
- * infinity), times in ms (> 0) */
+ * infinity), times in ms (> 0); the second knee and the smoothing off
+ * (set them after) */
 void udsp_comp_set(UDSP_COMP *c, float threshold_db, float ratio, float knee_db,
                    float attack_ms, float release_ms, int rms, unsigned rate);
 
-/* the gain (linear, <= 1) for each of frames frames of key (interleaved
- * stereo) into gain */
+/* a second knee, after udsp_comp_set: past threshold_db the level's slope
+ * goes from the compressor's 1 / ratio to 1 / ratio2 -- its term (1 /
+ * ratio2 - 1 / ratio) (x - threshold) whether the first acts there or not
+ * (Ozone 11's "Lim" stage: under the first threshold, or with ratio2
+ * under ratio, an expansion); its own quadratic knee, its own attack and
+ * release, then a tail: taken at once, let go over tail_ms (0: none).
+ * ratio2 <= 0: none */
+void udsp_comp_set_second(UDSP_COMP *c, float threshold_db, float ratio2,
+                          float knee_db, float attack_ms, float release_ms,
+                          float tail_ms, unsigned rate);
+
+/* the smoothed reduction through one more one-pole of ms (0: none) */
+void udsp_comp_set_smooth(UDSP_COMP *c, float ms, unsigned rate);
+
+/* the peak held before the curve -- taken at once, let go over ms (a
+ * linear one-pole; 0: none) -- so a waveform's troughs don't let the
+ * reduction sag (Ozone 11's Dynamics' detector: ripple-free on a sine);
+ * the peak detector only */
+void udsp_comp_set_hold(UDSP_COMP *c, float ms, unsigned rate);
+
+/* the peak over the last ms to 2 ms (the larger of this block's and the
+ * last one's, blocks ms long; 0: none), before the hold -- a window's
+ * maximum without a buffer (Ozone 11's: ~5 ms); the peak detector only */
+void udsp_comp_set_window(UDSP_COMP *c, float ms, unsigned rate);
+
+/* the gain (linear, <= 1 without a second knee's expansion) for each of
+ * frames frames of key (interleaved stereo) into gain */
 void udsp_comp_gain(UDSP_COMP *c, const float *key, float *gain, size_t frames);
 
 /* the static curve: the level out (dB) for a steady level in (dB) */

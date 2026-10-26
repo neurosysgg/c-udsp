@@ -245,6 +245,11 @@ static float pole(float ms, unsigned rate) {
 void udsp_comp_reset(UDSP_COMP *c) {
   c->red = 0.0f;
   c->ms = 0.0f;
+  c->red2 = 0.0f;
+  c->held = 0.0f;
+  c->r2 = c->t2 = 0.0f;
+  c->n = 0;
+  c->cur = c->prev = 0.0f;
 }
 
 void udsp_comp_set(UDSP_COMP *c, float threshold_db, float ratio, float knee_db,
@@ -257,20 +262,56 @@ void udsp_comp_set(UDSP_COMP *c, float threshold_db, float ratio, float knee_db,
   c->rel = pole(release_ms, rate);
   c->ms_coef = pole(10.0f, rate);
   c->rms = rms;
+  c->second = 0; /* set_second, set_smooth, set_hold, set_window after */
+  c->post = 0.0f;
+  c->hold = 0.0f;
+  c->block = 0;
 }
 
-/* the reduction (dB, >= 0) the curve asks for at level x */
-static inline float reduction(const UDSP_COMP *c, float x) {
-  const float d = x - c->thr;
-  const float w = c->knee;
+void udsp_comp_set_second(UDSP_COMP *c, float threshold_db, float ratio2,
+                          float knee_db, float attack_ms, float release_ms,
+                          float tail_ms, unsigned rate) {
+  c->second = ratio2 > 0.0f;
+  c->thr2 = threshold_db;
+  c->slope2 = c->second
+                  ? (ratio2 >= 1e9f ? 0.0f : 1.0f / ratio2) - 1.0f - c->slope
+                  : 0.0f;
+  c->knee2 = knee_db < 0.0f ? 0.0f : knee_db;
+  c->att2 = pole(attack_ms, rate);
+  c->rel2 = pole(release_ms, rate);
+  c->tail = tail_ms > 0.0f ? pole(tail_ms, rate) : 0.0f;
+}
+
+void udsp_comp_set_smooth(UDSP_COMP *c, float ms, unsigned rate) {
+  c->post = ms > 0.0f ? pole(ms, rate) : 0.0f;
+}
+
+void udsp_comp_set_hold(UDSP_COMP *c, float ms, unsigned rate) {
+  c->hold = ms > 0.0f ? pole(ms, rate) : 0.0f;
+}
+
+void udsp_comp_set_window(UDSP_COMP *c, float ms, unsigned rate) {
+  const float b = ms * (float)rate * 0.001f;
+  c->block = ms > 0.0f ? (b < 1.0f ? 1u : (uint32_t)(b + 0.5f)) : 0u;
+  c->n = 0;
+}
+
+/* a knee's reduction (dB) for a slope's change past thr, w wide */
+static inline float knee_red(float x, float thr, float slope, float w) {
+  const float d = x - thr;
   if (2.0f * d <= -w) {
     return 0.0f;
   }
   if (2.0f * d < w) {
     const float e = d + 0.5f * w;
-    return -c->slope * e * e / (2.0f * w);
+    return -slope * e * e / (2.0f * w);
   }
-  return -c->slope * d;
+  return -slope * d;
+}
+
+/* the reduction (dB, >= 0) the curve asks for at level x */
+static inline float reduction(const UDSP_COMP *c, float x) {
+  return knee_red(x, c->thr, c->slope, c->knee);
 }
 
 /* in passes over gain: the level, the curve's reduction (lanes), the
@@ -278,7 +319,54 @@ static inline float reduction(const UDSP_COMP *c, float x) {
  * operations a frame at a time would do */
 void udsp_comp_gain(UDSP_COMP *c, const float *key, float *gain,
                     size_t frames) {
-  key_db(key, gain, frames, c->rms, c->ms_coef, &c->ms);
+  if ((c->hold > 0.0f || c->block) && !c->rms) {
+    key_peak(key, gain, frames);
+    if (c->block) {
+      float cur = c->cur, prev = c->prev;
+      uint32_t n = c->n;
+      for (size_t k = 0; k < frames; k++) {
+        cur = gain[k] > cur ? gain[k] : cur;
+        gain[k] = cur > prev ? cur : prev;
+        if (++n >= c->block) {
+          prev = cur;
+          cur = 0.0f;
+          n = 0;
+        }
+      }
+      c->cur = cur;
+      c->prev = prev;
+      c->n = n;
+    }
+    float h = c->held;
+    for (size_t k = 0; k < frames; k++) {
+      h *= c->hold;
+      h = gain[k] > h ? gain[k] : h;
+      gain[k] = h;
+    }
+    c->held = h;
+    log2_scaled(gain, frames, PEAK_FLOOR, UDSP_DB_PER_LOG2);
+  } else {
+    key_db(key, gain, frames, c->rms, c->ms_coef, &c->ms);
+  }
+  if (c->second) { /* the two smoothers off one level, a frame at a time */
+    float red = c->red, red2 = c->red2, r2 = c->r2, t2 = c->t2;
+    for (size_t i = 0; i < frames; i++) {
+      const float x = gain[i];
+      const float w1 = reduction(c, x);
+      const float w2 = knee_red(x, c->thr2, c->slope2, c->knee2);
+      red = w1 + (w1 > red ? c->att : c->rel) * (red - w1);
+      red2 = red + c->post * (red2 - red);
+      r2 = w2 + (w2 > r2 ? c->att2 : c->rel2) * (r2 - w2);
+      t2 = r2 > t2 ? r2 : r2 + c->tail * (t2 - r2);
+      gain[i] = -(red2 + t2);
+    }
+    c->red = red;
+    c->red2 = red2;
+    c->r2 = r2;
+    c->t2 = t2;
+    gains_from_db(gain, frames, -INFINITY); /* finite: never */
+    return;
+  }
   size_t i = 0;
 #if UDSP_W > 1
   const float neg = -c->slope, w = c->knee;
@@ -302,11 +390,21 @@ void udsp_comp_gain(UDSP_COMP *c, const float *key, float *gain,
     gain[i] = -red;
   }
   c->red = red;
+  if (c->post > 0.0f) {
+    float r2 = c->red2;
+    for (i = 0; i < frames; i++) {
+      r2 = -gain[i] + c->post * (r2 + gain[i]);
+      gain[i] = -r2;
+    }
+    c->red2 = r2;
+  }
   gains_from_db(gain, frames, -INFINITY); /* finite: never */
 }
 
 float udsp_comp_curve(const UDSP_COMP *c, float in_db) {
-  return in_db - reduction(c, in_db);
+  const float r2 =
+      c->second ? knee_red(in_db, c->thr2, c->slope2, c->knee2) : 0.0f;
+  return in_db - reduction(c, in_db) - r2;
 }
 
 /* --- the up / down compressor ------------------------------------------ */

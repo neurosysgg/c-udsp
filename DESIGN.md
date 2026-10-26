@@ -221,7 +221,12 @@ eq.c        UDSP_EQ_BAND: a parametric EQ's band, stereo -- Simper's SVF
             screen, and a ramp: g, k and the mix moving a frame at a
             time so a glide neither zippers nor leaves the stable region
 dyn.c       a float log2 / exp2 of its own (no libm); UDSP_COMP (a soft
-            knee, peak or RMS, attack and release in dB), UDSP_GATE
+            knee, peak or RMS, attack and release in dB; appended, Ozone
+            11's Dynamics' band, measured: a second knee changing the
+            slope past its threshold, smoothed on its own and let go
+            through a tail, a one-pole after the first's smoother, the
+            peak's window -- the larger of this block's and the last
+            one's: no buffer -- and hold), UDSP_GATE
             (hysteresis, hold, a floor) -- both a gain from a key, the
             caller applying it (a sidechain) -- UDSP_UDCOMP, a band of
             Multiband Dynamics (down above one threshold, up below another,

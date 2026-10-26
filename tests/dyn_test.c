@@ -96,6 +96,99 @@ static void test_comp(void) {
                    (double)udsp_db_from_gain(g));
 }
 
+/* the second knee (Ozone 11's "Lim" stage): past its threshold the slope
+ * 1 / ratio2, its term there whatever the first does; the post smoothing
+ * a one-pole more on the reduction */
+static void test_comp_second(void) {
+  UDSP_COMP c;
+  udsp_comp_reset(&c);
+  udsp_comp_set(&c, -12.0f, 3.0f, 0.0f, 1.0f, 50.0f, 0, RATE);
+  udsp_comp_set_second(&c, 0.0f, 10.0f, 0.0f, 1.0f, 50.0f, 0.0f, RATE);
+  /* +3 in: 15 over the first at 3:1 (-12 + 4 = -8 at 0 dB in), then 3 over
+   * the second at 10:1: -8 + 0.3 = -7.7 out */
+  UDSP_TEST_ASSERT(fabsf(udsp_comp_curve(&c, 3.0f) + 7.7f) < 1e-4f &&
+                       fabsf(udsp_comp_curve(&c, -6.0f) + 10.0f) < 1e-4f,
+                   "two knees: -6 in -10 out, +3 in -7.7 out (%.3f)",
+                   (double)udsp_comp_curve(&c, 3.0f));
+  float g = comp_settled(&c, udsp_gain_from_db(3.0f), RATE);
+  UDSP_TEST_ASSERT(fabsf(udsp_db_from_gain(g) + 10.7f) < 0.01f,
+                   "and settled there: 10.7 dB down (%.3f)",
+                   (double)udsp_db_from_gain(g));
+  /* the second under the first with a gentler ratio: an expansion of the
+   * first's line (Ozone's law) -- -20 in, the first not yet acting */
+  udsp_comp_set(&c, 0.0f, 3.0f, 0.0f, 1.0f, 50.0f, 0, RATE);
+  udsp_comp_set_second(&c, -30.0f, 1.5f, 0.0f, 1.0f, 50.0f, 0.0f, RATE);
+  UDSP_TEST_ASSERT(fabsf(udsp_comp_curve(&c, -20.0f) + 16.6667f) < 1e-3f,
+                   "a second knee under the first at 1.5:1: -20 in, -16.67 "
+                   "out (%.3f)",
+                   (double)udsp_comp_curve(&c, -20.0f));
+  /* the post one-pole slows a step: 10 ms attack and 10 ms more after */
+  udsp_comp_reset(&c);
+  udsp_comp_set(&c, -20.0f, 4.0f, 0.0f, 10.0f, 200.0f, 0, RATE);
+  udsp_comp_set_smooth(&c, 10.0f, RATE);
+  g = comp_settled(&c, udsp_gain_from_db(0.0f), RATE / 100);
+  /* two equal poles: 1 - 2 / e of it a time constant later */
+  UDSP_TEST_ASSERT(fabsf(udsp_db_from_gain(g) + 15.0f * 0.2642f) < 0.15f,
+                   "two 10 ms poles: 26 %% of 15 dB after 10 ms (%.2f)",
+                   (double)udsp_db_from_gain(g));
+  udsp_comp_set(&c, -20.0f, 4.0f, 0.0f, 10.0f, 200.0f, 0, RATE);
+  UDSP_TEST_ASSERT(!c.second && c.post == 0.0f && c.hold == 0.0f &&
+                       c.block == 0,
+                   "set again: the second knee, the smoothing, the hold, the "
+                   "window off");
+  /* the hold: a 1 kHz sine at -8 dB, 12 dB over at 4:1 (9 dB to take) --
+   * without it the troughs let the reduction sag, with it not */
+  static float key[2 * RATE], gain[RATE];
+  for (int i = 0; i < RATE; i++) {
+    key[2 * i] = key[2 * i + 1] =
+        udsp_gain_from_db(-8.0f) *
+        (float)sin(6.283185307179586 * 1000 * i / RATE);
+  }
+  udsp_comp_reset(&c);
+  udsp_comp_set(&c, -20.0f, 4.0f, 0.0f, 30.0f, 100.0f, 0, RATE);
+  udsp_comp_gain(&c, key, gain, RATE);
+  const float sag = udsp_db_from_gain(gain[RATE - 1]);
+  udsp_comp_reset(&c);
+  udsp_comp_set(&c, -20.0f, 4.0f, 0.0f, 30.0f, 100.0f, 0, RATE);
+  udsp_comp_set_hold(&c, 5.0f, RATE);
+  udsp_comp_gain(&c, key, gain, RATE);
+  const float held = udsp_db_from_gain(gain[RATE - 1]);
+  UDSP_TEST_ASSERT(sag > -7.5f && fabsf(held + 9.0f) <
+                                      0.3f, /* 5 ms: a little between peaks */
+                   "a 1 kHz sine 12 dB over at 4:1: %.2f dB sagging, %.2f held",
+                   (double)sag, (double)held);
+  /* the window: a click at frame 10, blocks of 1 ms -- its block's peak,
+   * then the last block's, then gone (attack and release near instant) */
+  memset(key, 0, sizeof key);
+  key[20] = key[21] = 1.0f;
+  udsp_comp_reset(&c);
+  udsp_comp_set(&c, -20.0f, 4.0f, 0.0f, 0.001f, 0.001f, 0, RATE);
+  udsp_comp_set_window(&c, 1.0f, RATE);
+  udsp_comp_gain(&c, key, gain, 200);
+  UDSP_TEST_ASSERT(fabsf(udsp_db_from_gain(gain[95]) + 15.0f) < 0.01f &&
+                       fabsf(udsp_db_from_gain(gain[96])) < 0.01f &&
+                       fabsf(udsp_db_from_gain(gain[9])) < 0.01f,
+                   "a click held through the next block: %.2f at 95, %.2f "
+                   "at 96",
+                   (double)udsp_db_from_gain(gain[95]),
+                   (double)udsp_db_from_gain(gain[96]));
+  /* the second's tail: taken at once, let go over its own ms -- a step
+   * 6 dB over a 0 dB second knee at 10:1 (the first at 1:1: none) */
+  for (int i = 0; i < RATE; i++) {
+    key[2 * i] = key[2 * i + 1] = i < RATE / 2 ? 2.0f : 0.0f;
+  }
+  udsp_comp_reset(&c);
+  udsp_comp_set(&c, -60.0f, 1.0f, 0.0f, 1.0f, 1.0f, 0, RATE);
+  udsp_comp_set_second(&c, 0.0f, 10.0f, 0.0f, 0.01f, 0.01f, 20.0f, RATE);
+  udsp_comp_gain(&c, key, gain, RATE);
+  const float on = udsp_db_from_gain(gain[RATE / 2 - 1]);
+  const float later = udsp_db_from_gain(gain[RATE / 2 + RATE / 50]);
+  UDSP_TEST_ASSERT(fabsf(on + 5.418f) < 0.01f &&
+                       fabsf(later + 5.418f / 2.71828f) < 0.05f,
+                   "the tail: %.3f dB on, 1 / e of it 20 ms after (%.3f)",
+                   (double)on, (double)later);
+}
+
 static void test_gate(void) {
   UDSP_GATE g;
   udsp_gate_set(&g, -30.0f, 6.0f, -100.0f, 0.1f, 10.0f, 5.0f, RATE);
@@ -399,6 +492,7 @@ int main(void) {
   printf("dyn_test\n");
   test_log_exp();
   test_comp();
+  test_comp_second();
   test_gate();
   test_limiter();
   test_udcomp();
