@@ -488,6 +488,107 @@ static void test_udcomp_gains(void) {
                          "of one at a time");
 }
 
+/* the vintage compressor: n frames of a sine at hz (its rms level_db) or,
+ * hz 0, a square at the half rate (|x| steady); the reduction after them,
+ * and the first frame cut (-1: none) */
+static float vcomp_run(UDSP_VCOMP *c, UDSP_EQ_BAND *const *key, int keys,
+                       float level_db, float hz, size_t n, float *first_cut) {
+  const float a = udsp_gain_from_db(level_db);
+  float buf[2 * 64];
+  size_t done = 0;
+  if (first_cut) {
+    *first_cut = -1.0f;
+  }
+  while (done < n) {
+    size_t m = n - done < 64 ? n - done : 64;
+    for (size_t i = 0; i < m; i++) {
+      float x = hz > 0.0f ? sinf(6.2831853f * hz * (float)(done + i) / RATE) *
+                                1.41421356f * a
+                          : ((done + i) & 1 ? -a : a);
+      buf[2 * i] = buf[2 * i + 1] = x;
+    }
+    udsp_vcomp_stereo(c, key, keys, buf, m);
+    for (size_t i = 0; first_cut && hz <= 0.0f && i < m; i++) {
+      if (*first_cut < 0.0f && fabsf(buf[2 * i]) < a * 0.9999f) {
+        *first_cut = (float)(done + i);
+      }
+    }
+    done += m;
+  }
+  return c->reduction;
+}
+
+static void test_vcomp(void) {
+  UDSP_VCOMP c;
+  udsp_vcomp_reset(&c);
+  udsp_vcomp_set(&c, -20.0f, 4.0f, 0.0f, 0.5f, 100000.0f, RATE);
+  udsp_vcomp_set_auto(&c, 0.0f, RATE);
+  /* 12 dB over at 4:1: 9 dB down, the static curve's, though the
+   * detector reads the output (3 dB over at a slope of 3) */
+  float red = vcomp_run(&c, NULL, 0, -8.0f, 0.0f, RATE, NULL);
+  UDSP_TEST_ASSERT(fabsf(red - 9.0f) < 0.02f,
+                   "feedback, 4:1, 12 dB over: 9 dB down (%.3f)", (double)red);
+  UDSP_TEST_ASSERT(fabsf(udsp_vcomp_curve(&c, -17.0f) - 9.0f) < 1e-4f,
+                   "the curve on the output's level: -17 reads 9 dB");
+
+  /* the leak: a steady level reads leak / (attack + leak) of itself --
+   * attack 10, leak 90: 0.915 dB short, 0.75 of it less reduction */
+  udsp_vcomp_reset(&c);
+  udsp_vcomp_set(&c, -20.0f, 4.0f, 0.0f, 10.0f, 90.0f, RATE);
+  red = vcomp_run(&c, NULL, 0, -8.0f, 0.0f, 2 * RATE, NULL);
+  const float want = 0.75f * (12.0f + 20.0f * log10f(0.9f));
+  UDSP_TEST_ASSERT(fabsf(red - want) < 0.03f,
+                   "the leak's shortfall: %.3f dB down (%.3f)", (double)want,
+                   (double)red);
+
+  /* the dead time: nothing until the detector has climbed to the
+   * threshold -- from rest toward 0.9 x at 1 / 10 + 1 / 90 per ms, -20
+   * of -8 dB (0.251 of it) after -ln(1 - 0.251 / 0.9) x 9 ms = 2.94 ms */
+  udsp_vcomp_reset(&c);
+  float cut;
+  vcomp_run(&c, NULL, 0, -8.0f, 0.0f, RATE / 10, &cut);
+  UDSP_TEST_ASSERT(fabsf(cut / RATE * 1000.0f - 2.94f) < 0.1f,
+                   "the first frame cut %.2f ms in (2.94)",
+                   (double)(cut / RATE * 1000.0f));
+
+  /* auto gain: a steady level comes out as loud as it went in */
+  udsp_vcomp_reset(&c);
+  udsp_vcomp_set_auto(&c, 500.0f, RATE);
+  red = vcomp_run(&c, NULL, 0, -8.0f, 0.0f, 5 * RATE, NULL);
+  const float makeup = udsp_db_from_gain(c.in_m / c.out_m);
+  UDSP_TEST_ASSERT(red > 8.0f && fabsf(makeup - red) < 0.02f,
+                   "auto gain: the makeup the reduction (%.3f vs %.3f)",
+                   (double)makeup, (double)red);
+
+  /* idle: the same as running on silence */
+  UDSP_VCOMP d = c;
+  float sil[2 * 4800] = {0};
+  udsp_vcomp_stereo(&c, NULL, 0, sil, 4800);
+  udsp_vcomp_idle(&d, 4800);
+  UDSP_TEST_ASSERT(fabsf(c.env / d.env - 1.0f) < 1e-3f &&
+                       fabsf(c.in_m / d.in_m - 1.0f) < 1e-3f &&
+                       fabsf(c.reduction - d.reduction) < 1e-3f,
+                   "idle 100 ms: the detector and meters as on silence "
+                   "(env %.4g / %.4g)",
+                   (double)c.env, (double)d.env);
+
+  /* the key: a high pass at 2 kHz hears a 200 Hz sine 40 dB down: no
+   * reduction; the same sine without it, 12 dB over at its peak */
+  UDSP_EQ_BAND hp;
+  udsp_eq_reset(&hp);
+  udsp_eq_set(&hp, UDSP_EQ_LOW_CUT_12, 2000.0f, 0.7071f, 0.0f, RATE);
+  UDSP_EQ_BAND *const key[] = {&hp};
+  udsp_vcomp_reset(&c);
+  udsp_vcomp_set(&c, -20.0f, 4.0f, 0.0f, 0.5f, 100000.0f, RATE);
+  udsp_vcomp_set_auto(&c, 0.0f, RATE);
+  red = vcomp_run(&c, key, 1, -11.0f, 200.0f, RATE / 2, NULL);
+  UDSP_TEST_ASSERT(red == 0.0f, "a key high pass: a low sine unheard (%.3f)",
+                   (double)red);
+  udsp_vcomp_reset(&c);
+  red = vcomp_run(&c, NULL, 0, -11.0f, 200.0f, RATE / 2, NULL);
+  UDSP_TEST_ASSERT(red > 8.5f, "without it: compressed (%.3f)", (double)red);
+}
+
 int main(void) {
   printf("dyn_test\n");
   test_log_exp();
@@ -499,5 +600,6 @@ int main(void) {
   test_udcomp_power();
   test_udcomp_slopes();
   test_udcomp_gains();
+  test_vcomp();
   return udsp_test_summary();
 }

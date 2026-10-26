@@ -238,7 +238,14 @@ dyn.c       a float log2 / exp2 of its own (no libm); UDSP_COMP (a soft
             holding it) -- and UDSP_LIMITER, a
             brickwall over a lookahead (the needed gain held at its
             window's minimum, released, averaged over the window: no
-            sample past the ceiling)
+            sample past the ceiling); UDSP_VCOMP, Ozone 11's Vintage
+            Compressor, measured: a feedback design (the detector reads
+            the output, through the caller's EQ bands) with an analog
+            peak detector -- charged at the attack while the output is
+            above it, leaking always, so a steady level reads short of
+            itself -- its slope ratio - 1, and an auto gain from two
+            meters (the input's and the output's mean |x|); the one
+            compressor here that applies its own gain: the loop needs it
 xover.c     UDSP_XOVER: a Linkwitz-Riley crossover, up to five bands at
             24 dB an octave (two Butterworth sections of Simper's SVF each
             way), the lower bands through the higher splits' allpasses so

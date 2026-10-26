@@ -732,3 +732,82 @@ void udsp_limiter_stereo(UDSP_LIMITER *l, float *io, size_t frames) {
   }
   l->reduction = g;
 }
+
+/* --- the vintage compressor -------------------------------------------- */
+
+void udsp_vcomp_reset(UDSP_VCOMP *c) {
+  c->env = 0.0f;
+  c->g = 1.0f;
+  c->in_m = c->out_m = 0.0f;
+  c->reduction = 0.0f;
+}
+
+void udsp_vcomp_set(UDSP_VCOMP *c, float threshold_db, float ratio,
+                    float knee_db, float attack_ms, float leak_ms,
+                    unsigned rate) {
+  c->thr = threshold_db;
+  c->slope = ratio < 1.0f ? 0.0f : ratio - 1.0f;
+  c->knee = knee_db < 0.0f ? 0.0f : knee_db;
+  c->charge = 1.0f - pole(attack_ms, rate);
+  c->leak = pole(leak_ms, rate);
+}
+
+void udsp_vcomp_set_auto(UDSP_VCOMP *c, float ms, unsigned rate) {
+  c->auto_pole = ms > 0.0f ? pole(ms, rate) : 0.0f;
+  c->meter = pole(ms > 0.0f ? ms : 500.0f, rate);
+}
+
+/* p^n through log2 / exp2 (no libm), 0 once it underflows */
+static float pole_pow(float p, size_t n) {
+  if (p <= 0.0f) {
+    return 0.0f;
+  }
+  const float l = udsp_log2f(p) * (float)n;
+  return l < -120.0f ? 0.0f : udsp_exp2f(l);
+}
+
+void udsp_vcomp_idle(UDSP_VCOMP *c, size_t frames) {
+  c->env *= pole_pow(c->leak, frames);
+  const float m = pole_pow(c->meter, frames);
+  c->in_m *= m;
+  c->out_m *= m;
+  c->reduction = udsp_vcomp_curve(c, udsp_db_from_gain(c->env));
+  c->g = udsp_gain_from_db(-c->reduction);
+}
+
+float udsp_vcomp_curve(const UDSP_VCOMP *c, float detector_db) {
+  return knee_red(detector_db, c->thr, -c->slope, c->knee);
+}
+
+void udsp_vcomp_stereo(UDSP_VCOMP *c, UDSP_EQ_BAND *const *key, int keys,
+                       float *io, size_t frames) {
+  const float a = c->meter;
+  for (size_t i = 0; i < frames; i++) {
+    float *f = io + 2 * i;
+    const float in = fabsf(f[0]) + fabsf(f[1]);
+    f[0] *= c->g;
+    f[1] *= c->g;
+    float k[2] = {f[0], f[1]};
+    for (int j = 0; j < keys; j++) {
+      udsp_eq_stereo(key[j], k, 1);
+    }
+    const float v = fabsf(k[0]) > fabsf(k[1]) ? fabsf(k[0]) : fabsf(k[1]);
+    float e = c->env;
+    if (v > e) {
+      e += (v - e) * c->charge;
+    }
+    e *= c->leak;
+    c->env = e < 1e-20f ? 0.0f : e; /* no denormals in a long silence */
+    c->reduction = udsp_vcomp_curve(c, udsp_db_from_gain(c->env));
+    c->g = udsp_gain_from_db(-c->reduction);
+    /* the meters run with the auto gain off too: turned on, it starts
+     * from where the levels are */
+    c->in_m = a * c->in_m + (1.0f - a) * in;
+    c->out_m = a * c->out_m + (1.0f - a) * (fabsf(f[0]) + fabsf(f[1]));
+    if (c->auto_pole > 0.0f) {
+      const float makeup = (c->in_m + 1e-12f) / (c->out_m + 1e-12f);
+      f[0] *= makeup;
+      f[1] *= makeup;
+    }
+  }
+}

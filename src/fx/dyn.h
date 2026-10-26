@@ -4,6 +4,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "fx/eq.h"
+
 /* Dynamics: a compressor's and a gate's gain from a key signal, and a
  * lookahead limiter. The level work is in dB, per frame, through a
  * float log2 / exp2 of their own (no libm: the same bits everywhere, as
@@ -234,5 +236,57 @@ void udsp_limiter_set(UDSP_LIMITER *l, uint32_t lookahead, float ceiling,
 /* in place, interleaved stereo: the output lags the input by the
  * lookahead */
 void udsp_limiter_stereo(UDSP_LIMITER *l, float *io, size_t frames);
+
+/* --- the vintage compressor --------------------------------------------
+ * iZotope Ozone 11's Vintage Compressor (measured): a feedback design --
+ * the detector reads the output (the gain a frame late), through the
+ * caller's key filters (EQ bands; Ozone's a first-order high pass, a bell
+ * and a high shelf) -- the louder channel's |y| into an analog peak
+ * detector: charged toward it at the attack's pole while it is above,
+ * leaking toward 0 at the leak's always. A steady level so reads
+ * leak / (attack + leak) of itself -- the hardware's shortfall: more
+ * attack, less reduction --, and the reduction only starts once the
+ * detector has climbed to the threshold. The curve's slope in feedback is
+ * ratio - 1 (its quadratic knee knee wide): the static curve 1 / ratio
+ * past the threshold. Auto gain: the input's and the output's mean |x|
+ * (both channels) through a one-pole each, their ratio the makeup -- a
+ * steady level comes out as loud as it went in, the reduction only on
+ * what moves. */
+
+typedef struct {
+  float thr, slope, knee;   /* dB; ratio - 1 */
+  float charge, leak;       /* the detector's: 1 - pole, pole */
+  float env;                /* the detector, linear */
+  float g;                  /* the gain the next frame gets */
+  float auto_pole;          /* 0: no auto gain */
+  float meter, in_m, out_m; /* its meters' pole, the meters */
+  float reduction;          /* dB (>= 0), the last frame's: a meter's */
+} UDSP_VCOMP;
+
+void udsp_vcomp_reset(UDSP_VCOMP *c);
+
+/* threshold and knee in dB, ratio >= 1, the detector's attack and leak
+ * in ms (> 0); the auto gain left as it is (udsp_vcomp_set_auto once
+ * before the first frames, 0 for none) */
+void udsp_vcomp_set(UDSP_VCOMP *c, float threshold_db, float ratio,
+                    float knee_db, float attack_ms, float leak_ms,
+                    unsigned rate);
+
+/* the auto gain's meters' time constant in ms (0: off; Ozone's 500) */
+void udsp_vcomp_set_auto(UDSP_VCOMP *c, float ms, unsigned rate);
+
+/* frames interleaved stereo frames in place, the detector's input
+ * through key[0..keys) in turn (stereo bands of the caller's, their state
+ * the key's) */
+void udsp_vcomp_stereo(UDSP_VCOMP *c, UDSP_EQ_BAND *const *key, int keys,
+                       float *io, size_t frames);
+
+/* frames of silence gone by without running: the detector leaks and the
+ * meters fall as they would have (a host's sleep) */
+void udsp_vcomp_idle(UDSP_VCOMP *c, size_t frames);
+
+/* the static curve's reduction (dB, >= 0) for a steady detector level
+ * (dB) -- the output's, as the detector reads it */
+float udsp_vcomp_curve(const UDSP_VCOMP *c, float detector_db);
 
 #endif
