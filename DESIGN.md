@@ -24,7 +24,7 @@ src/synth/      making one: pitch, osc, wtab, lfo, adsr, openv, ramp,
                 smooth, sampler
 src/fx/         changing one, in a render: svf, zdf, eq, xover, disperse,
                 line, velvet, delay, fdn, dyn, shape, gain, conv, bank, geq,
-                os, sos
+                os, sos, onset
 src/offline/    changing one ahead of a render, at any cost: sinc,
                 stretch, dither, irfb
 ```
@@ -217,6 +217,10 @@ os.c        UDSP_OS: oversampling by 2 or 4, stereo -- de Soras' hiir
             down an allpass, 4.6 frames late at 4x
 sos.c       UDSP_SOS: a fixed cascade of biquads, stereo -- a filter
             fitted offline (a plugin's, measured), the caller's sections
+onset.c     UDSP_ONSET: onsets in a stereo signal, to the frame (a kick's
+            start, for a ducker keyed by it): a fast follower of the
+            louder channel over a slow one of it -- a jump, not a level
+            --, a guard between onsets; the same bits at any block size
 eq.c        UDSP_EQ_BAND: a parametric EQ's band, stereo -- Simper's SVF
             with its outputs mixed into sixteen shapes (cuts at 12 and 48
             dB an octave, shelves, a bell, a notch, a band pass; then
