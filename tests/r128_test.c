@@ -184,7 +184,52 @@ static void test_lfe_is_not_counted(void) {
       "5.1's LFE adds nothing (%.4f)", udsp_r128_integrated(&a.hist));
 }
 
+/* the live readings: a steady -23 dBFS stereo sine is -23 LUFS on M, S and
+ * I, and a program of two levels has the range between them */
+static void test_meter(void) {
+  static UDSP_R128_METER m;
+  static float buf[2 * CHUNK];
+  const int rate = 48000;
+  udsp_r128_meter_init(&m, rate, 2);
+  UDSP_TEST_ASSERT(udsp_r128_meter_short(&m) == -HUGE_VAL, "no reading yet");
+  const double levels[2] = {-33.0, -23.0};
+  double phase = 0.0;
+  for (int seg = 0; seg < 2; seg++) {
+    size_t frames = (size_t)20 * (size_t)rate;
+    const float gain = (float)pow(10.0, levels[seg] / 20.0);
+    while (frames > 0) {
+      const size_t n = frames < CHUNK ? frames : CHUNK;
+      for (size_t i = 0; i < n; i++) {
+        buf[2 * i] = buf[2 * i + 1] = gain * (float)sin(phase);
+        phase += 2.0 * M_PI * 1000.0 / rate;
+      }
+      udsp_r128_meter_add(&m, buf, n);
+      frames -= n;
+    }
+  }
+  UDSP_TEST_ASSERT(fabs(udsp_r128_meter_momentary(&m) + 23.0) < 0.1,
+                   "momentary -23");
+  UDSP_TEST_ASSERT(fabs(udsp_r128_meter_short(&m) + 23.0) < 0.1, "short -23");
+  UDSP_TEST_ASSERT(fabs(udsp_r128_integrated(&m.program) + 25.6) < 0.2,
+                   "integrated: -33 is over the relative gate, in the mean");
+  const double range = udsp_r128_range(&m.range);
+  UDSP_TEST_ASSERT(range > 9.0 && range < 11.0, "range 10 LU (%.2f)", range);
+
+  udsp_r128_meter_reset(&m);
+  UDSP_TEST_ASSERT(udsp_r128_integrated(&m.program) == -HUGE_VAL, "reset");
+  UDSP_TEST_ASSERT(fabs(udsp_r128_meter_short(&m) + 23.0) < 0.1,
+                   "S goes on past a reset");
+  m.hold = 1;
+  udsp_r128_meter_add(&m, buf, CHUNK);
+  for (int i = 0; i < 40; i++) {
+    udsp_r128_meter_add(&m, buf, CHUNK);
+  }
+  UDSP_TEST_ASSERT(udsp_r128_integrated(&m.program) == -HUGE_VAL, "held");
+  UDSP_TEST_ASSERT(udsp_r128_range(&m.range) == 0.0, "no range with none");
+}
+
 int main(void) {
+  test_meter();
   test_kweight_at_48k_is_the_spec_table();
   test_tech3341();
   test_other_rates();

@@ -206,6 +206,110 @@ double udsp_r128_integrated(const UDSP_R128_HIST *h) {
   return to_lufs(energy / (double)count);
 }
 
+void udsp_r128_meter_init(UDSP_R128_METER *m, int sample_rate, int channels) {
+  memset(m, 0, sizeof(*m));
+  udsp_r128_init(&m->r, sample_rate, channels);
+}
+
+void udsp_r128_meter_reset(UDSP_R128_METER *m) {
+  memset(&m->program, 0, sizeof(m->program));
+  memset(&m->range, 0, sizeof(m->range));
+}
+
+/* a hop just ended: r.hops of them so far */
+static void meter_hop(UDSP_R128_METER *m) {
+  const uint64_t hops = m->r.hops;
+  m->hop[(hops - 1) % UDSP_R128_SHORT_HOPS] = m->r.sub[(hops - 1) % 4];
+  if (hops < 4) {
+    return;
+  }
+  const double frames = (double)m->r.hop;
+  const int have =
+      hops < UDSP_R128_SHORT_HOPS ? (int)hops : UDSP_R128_SHORT_HOPS;
+  double sum = 0.0;
+  for (int i = 0; i < have; i++) {
+    sum += m->hop[i];
+  }
+  m->shortterm = sum / (have * frames);
+  m->momentary =
+      (m->r.sub[0] + m->r.sub[1] + m->r.sub[2] + m->r.sub[3]) / (4.0 * frames);
+  if (!m->hold) {
+    add_block(&m->program, m->momentary);
+    if (have == UDSP_R128_SHORT_HOPS) {
+      add_block(&m->range, m->shortterm);
+    }
+  }
+}
+
+void udsp_r128_meter_add(UDSP_R128_METER *m, const float *interleaved,
+                         size_t frames) {
+  if (!m->hold) {
+    const float peak =
+        udsp_analyze_peak(interleaved, frames * (size_t)m->r.channels);
+    m->program.peak = peak > m->program.peak ? peak : m->program.peak;
+  }
+  while (frames > 0) {
+    size_t n = m->r.hop - m->r.acc_n;
+    n = n > frames ? frames : n;
+    udsp_r128_add(&m->r, interleaved, n);
+    interleaved += n * (size_t)m->r.channels;
+    frames -= n;
+    if (m->r.acc_n == 0) {
+      meter_hop(m);
+    }
+  }
+}
+
+double udsp_r128_meter_momentary(const UDSP_R128_METER *m) {
+  return m->momentary > 0.0 ? to_lufs(m->momentary) : -HUGE_VAL;
+}
+
+double udsp_r128_meter_short(const UDSP_R128_METER *m) {
+  return m->shortterm > 0.0 ? to_lufs(m->shortterm) : -HUGE_VAL;
+}
+
+double udsp_r128_range(const UDSP_R128_HIST *h) {
+  uint64_t count = 0;
+  double energy = 0.0;
+  for (int i = 0; i < UDSP_R128_BINS; i++) {
+    count += h->count[i];
+    energy += h->energy[i];
+  }
+  if (count == 0) {
+    return 0.0;
+  }
+  const double gate = to_lufs(energy / (double)count) - 20.0;
+  uint64_t in = 0;
+  for (int i = 0; i < UDSP_R128_BINS; i++) {
+    if (R128_BIN_LOW + i * R128_BIN_STEP >= gate) {
+      in += h->count[i];
+    }
+  }
+  if (in == 0) {
+    return 0.0;
+  }
+  const uint64_t lo = in / 10, hi = in - in / 20 - 1;
+  uint64_t seen = 0;
+  double low = 0.0, high = 0.0;
+  int got_low = 0;
+  for (int i = 0; i < UDSP_R128_BINS; i++) {
+    const double at = R128_BIN_LOW + i * R128_BIN_STEP;
+    if (at < gate || h->count[i] == 0) {
+      continue;
+    }
+    seen += h->count[i];
+    if (!got_low && seen > lo) {
+      low = at;
+      got_low = 1;
+    }
+    if (seen > hi) {
+      high = at;
+      break;
+    }
+  }
+  return high - low;
+}
+
 void udsp_r128_hist_add(UDSP_R128_HIST *dst, const UDSP_R128_HIST *src) {
   for (int i = 0; i < UDSP_R128_BINS; i++) {
     dst->count[i] += src->count[i];

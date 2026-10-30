@@ -83,6 +83,8 @@ There's no single umbrella header — include only what you need
 #include "analysis/r128.h"        /* UDSP_R128 + udsp_r128_add/integrated -- a program's
                                      integrated loudness (EBU R128, gated) and sample
                                      peak, fed in chunks; UDSP_R128_HIST adds up an album */
+#include "analysis/truepeak.h"    /* UDSP_TRUEPEAK -- BS.1770's true peak */
+#include "analysis/chroma.h"      /* peaks, pitch classes, root, chord, key */
 #include "analysis/yin.h"         /* udsp_yin -- a note's fundamental */
 #include "analysis/scope.h"       /* udsp_scope_extract -- triggered waveform trace */
 #include "analysis/ballistics.h"  /* udsp_ballistics, udsp_peak_hold -- attack/release,

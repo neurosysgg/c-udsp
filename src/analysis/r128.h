@@ -66,6 +66,36 @@ double udsp_r128_integrated(const UDSP_R128_HIST *h);
 /* dst += src: an album out of its tracks */
 void udsp_r128_hist_add(UDSP_R128_HIST *dst, const UDSP_R128_HIST *src);
 
+/* A live meter over the same measurement (EBU Tech 3341's M, S, I, and
+ * Tech 3342's loudness range): the last 400 ms and 3 s, every 100 ms, with
+ * the program's blocks gathered unless held. Two more histograms' worth of
+ * state and nothing else: no allocation, and a block of any size gives the
+ * same readings. */
+
+#define UDSP_R128_SHORT_HOPS 30 /* 3 s of 100 ms */
+
+typedef struct {
+  UDSP_R128 r;
+  double hop[UDSP_R128_SHORT_HOPS]; /* the last hops' weighted sums */
+  double momentary, shortterm;      /* mean energies, 0 none yet */
+  UDSP_R128_HIST program;           /* 400 ms blocks: integrated */
+  UDSP_R128_HIST range;             /* 3 s blocks: the loudness range */
+  int hold;                         /* nonzero: M and S only */
+} UDSP_R128_METER;
+
+void udsp_r128_meter_init(UDSP_R128_METER *m, int sample_rate, int channels);
+/* the program forgotten, M and S and the filters going on */
+void udsp_r128_meter_reset(UDSP_R128_METER *m);
+void udsp_r128_meter_add(UDSP_R128_METER *m, const float *interleaved,
+                         size_t frames);
+/* LUFS, -HUGE_VAL before there's a reading (S counts what it has of its 3 s
+ * from the first 400 ms) */
+double udsp_r128_meter_momentary(const UDSP_R128_METER *m);
+double udsp_r128_meter_short(const UDSP_R128_METER *m);
+/* the loudness range in LU: the 10th to 95th percentile of the 3 s blocks
+ * over -70 LUFS and over 20 LU under their mean; 0 with none */
+double udsp_r128_range(const UDSP_R128_HIST *h);
+
 /* BS.1770's two K-weighting stages for sample_rate, as {b0, b1, b2, a1,
  * a2} each (a0 = 1): the spec's analog prototypes put through the
  * bilinear transform, which at 48 kHz gives its published table */

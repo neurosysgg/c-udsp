@@ -19,7 +19,7 @@ src/base/       simd.h (the vectors), fft.c (the transform), trig.c (a
                 sine in double, no libm): what every
                 other directory may use, and uses nothing itself
 src/analysis/   measuring a signal: analyze, spectrum, spectrogram,
-                loudness, r128, yin, scope, ballistics
+                loudness, r128, truepeak, chroma, yin, scope, ballistics
 src/synth/      making one: pitch, osc, wtab, lfo, adsr, openv, ramp,
                 smooth, sampler
 src/fx/         changing one, in a render: svf, zdf, eq, xover, disperse,
@@ -84,6 +84,12 @@ r128.c           UDSP_R128: a program's integrated loudness (EBU R128 /
                  file from loudness.c for that reason, as spectrogram.c
                  is from spectrum.c.
 
+truepeak.c       UDSP_TRUEPEAK: BS.1770's true peak, 4x through a 48-tap
+                 polyphase low-pass; stateful as r128.c, for the same
+                 reason (a measurement over all of a signal).
+chroma.c         What's being played, off a power spectrum: its peaks, the
+                 pitch classes, the root under them (harmonics scored),
+                 the chord and key templates they fit. Stateless.
 yin.c            udsp_yin(): a note's fundamental (YIN: the normalized
                  difference function's first dip, a parabola through
                  it) -- for a sampler mapping multi-samples whose roots
