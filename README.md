@@ -104,6 +104,8 @@ There's no single umbrella header — include only what you need
                                 a fixed time, landing on it exactly */
 #include "synth/sampler.h"   /* UDSP_SAMPLE, UDSP_SAMPLER_VOICE -- a sample at a
                                 pitch, Q32 position, linear interpolation, loops */
+#include "synth/grain.h"     /* UDSP_GRAIN -- a windowed stretch of a sample at a
+                                pitch, either way, cubic: a granular's grain */
 
 /* src/fx/: changing one, in a render */
 #include "fx/svf.h"          /* UDSP_SVF -- Chamberlin state-variable filter */
