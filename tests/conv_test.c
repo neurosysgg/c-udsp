@@ -247,6 +247,61 @@ static void test_direct(void) {
                    "a short response's head: reversed, zeros past it");
 }
 
+/* the sum in slices ahead of the push and partition 0 after it: the same
+ * output as the whole sum after it, within the floats' new order */
+static void test_slices(void) {
+  enum { BLOCK = 64, FRAMES = 1000, BLOCKS = 40 };
+  const size_t parts = udsp_conv_parts(FRAMES, BLOCK);
+  const size_t spec = UDSP_CONV_SPECTRUM(BLOCK);
+  float *table = malloc(UDSP_FFT_TABLE_FLOATS(2 * BLOCK) * sizeof(float));
+  float *ir = malloc(FRAMES * sizeof(float));
+  float *spectra = malloc(parts * spec * sizeof(float));
+  float *lines = calloc(2 * parts * spec, sizeof(float));
+  float *frames = calloc(4 * BLOCK, sizeof(float));
+  float *a = calloc(spec, sizeof(float)), *b = calloc(spec, sizeof(float));
+  float scratch[2 * BLOCK], x[BLOCK], ya[BLOCK], yb[BLOCK];
+  udsp_fft_table(table, 2 * BLOCK);
+  for (size_t i = 0; i < FRAMES; i++) {
+    ir[i] = rnd() * exp(-(double)i / 300.0);
+  }
+  udsp_conv_ir(ir, FRAMES, 1, BLOCK, spectra, table, scratch);
+  UDSP_CONV_IN whole, sliced;
+  udsp_conv_in_init(&whole, BLOCK, parts, lines, frames);
+  udsp_conv_in_init(&sliced, BLOCK, parts, lines + parts * spec,
+                    frames + 2 * BLOCK);
+  double worst = 0.0;
+  for (int n = 0; n < BLOCKS; n++) {
+    for (int i = 0; i < BLOCK; i++) {
+      x[i] = rnd();
+    }
+    /* three slices before the push, in any cut */
+    const size_t cut1 = 1 + (parts - 1) / 3, cut2 = 1 + 2 * (parts - 1) / 3;
+    memset(b, 0, spec * sizeof(float));
+    udsp_conv_mac_range(&sliced, spectra, 1, cut1, 1, b);
+    udsp_conv_mac_range(&sliced, spectra, cut1, cut2, 1, b);
+    udsp_conv_mac_range(&sliced, spectra, cut2, parts, 1, b);
+    udsp_conv_in_push(&sliced, x, 1, table);
+    udsp_conv_mac_range(&sliced, spectra, 0, 1, 0, b);
+    udsp_conv_out(b, BLOCK, yb, 1, table, scratch);
+    udsp_conv_in_push(&whole, x, 1, table);
+    memset(a, 0, spec * sizeof(float));
+    udsp_conv_mac(&whole, spectra, parts, a);
+    udsp_conv_out(a, BLOCK, ya, 1, table, scratch);
+    for (int i = 0; i < BLOCK; i++) {
+      const double d = fabs((double)ya[i] - (double)yb[i]);
+      worst = d > worst ? d : worst;
+    }
+  }
+  UDSP_TEST_ASSERT(worst < 1e-4, "slices match the whole sum");
+  free(table);
+  free(ir);
+  free(spectra);
+  free(lines);
+  free(frames);
+  free(a);
+  free(b);
+}
+
 int main(void) {
   printf("conv_test\n");
   test_inverse_round_trip();
@@ -255,6 +310,7 @@ int main(void) {
   test_against_direct();
   test_delay();
   test_two_inputs();
+  test_slices();
   test_direct();
   return udsp_test_summary();
 }

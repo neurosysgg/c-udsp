@@ -52,10 +52,15 @@ void udsp_conv_in_push(UDSP_CONV_IN *in, const float *x, size_t stride,
 
 void udsp_conv_mac(const UDSP_CONV_IN *in, const float *spectra, size_t parts,
                    float *acc) {
+  udsp_conv_mac_range(in, spectra, 0, parts, 0, acc);
+}
+
+void udsp_conv_mac_range(const UDSP_CONV_IN *in, const float *spectra,
+                         size_t from, size_t to, size_t lead, float *acc) {
   const size_t bins = in->block + 1, s = UDSP_CONV_SPECTRUM(in->block);
   float *restrict ar = acc, *restrict ai = acc + bins;
-  size_t slot = in->pos;
-  for (size_t p = 0; p < parts; p++) {
+  size_t slot = (in->pos + in->parts - (from - lead) % in->parts) % in->parts;
+  for (size_t p = from; p < to; p++) {
     const float *restrict xr = in->line + slot * s, *restrict xi = xr + bins;
     const float *restrict hr = spectra + p * s, *restrict hi = hr + bins;
     size_t k = 0;

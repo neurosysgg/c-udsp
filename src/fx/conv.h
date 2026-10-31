@@ -54,6 +54,15 @@ void udsp_conv_in_push(UDSP_CONV_IN *in, const float *x, size_t stride,
 void udsp_conv_mac(const UDSP_CONV_IN *in, const float *spectra, size_t parts,
                    float *acc);
 
+/* a slice of the same sum, so a long response's work can spread over a
+ * block instead of landing on its boundary (Gardner's scheduling): acc +=
+ * the sum over from <= p < to of the spectrum p - lead blocks old times
+ * partition p. lead 1 reads the line before the next push, as the sum
+ * after that push will: partitions from 1 up need nothing newer, only
+ * partition 0 waits for the block itself. */
+void udsp_conv_mac_range(const UDSP_CONV_IN *in, const float *spectra,
+                         size_t from, size_t to, size_t lead, float *acc);
+
 /* acc's block of output, block samples to out[i * stride]; acc is left
  * changed (zero it before the next block's multiply-adds). scratch holds
  * 2 * block floats. */
